@@ -1,0 +1,60 @@
+PENTING: TFT nempel di expansion board dengan jalur PCB TETAP (P16, P17,
+P5, P18, P23, P4) — pin-pin ini TIDAK BISA dipindah lewat firmware/jumper.
+Yang dipindah untuk menghindari bentrok adalah FINGERPRINT (nyambung pakai
+kabel bebas, jadi gampang dipindah ke pin lain).
+
+──────────────────────────────────────────────────────────────
+KEYPAD MATRIX 4X4
+──────────────────────────────────────────────────────────────
+ROW 1 → P32
+ROW 2 → P33
+ROW 3 → P25
+ROW 4 → P26
+COL 1 → P27
+COL 2 → P14
+COL 3 → P12
+COL 4 → P13
+
+──────────────────────────────────────────────────────────────
+FINGERPRINT ZW111 (UART2) — pindah dari P16/P17 ke sini
+──────────────────────────────────────────────────────────────
+PUTIH        = 3.3V
+HIJAU        = 3.3V
+MERAH        = GND
+BIRU         = tidak dipakai
+KUNING (TX)  → P19 (ESP32 RX2)
+HITAM  (RX)  → P22 (ESP32 TX2)
+
+──────────────────────────────────────────────────────────────
+TFT 1.77" ST7735 — 8 pin → expansion board (kolom S / V / G)
+FIXED, jangan diubah kecuali pindah expansion board lain.
+──────────────────────────────────────────────────────────────
+  Pin | Label | Expansion board
+  ----|-------|----------------------------------
+   1  | GND   | G
+   2  | VCC   | V (3.3V, jumper 3V)
+   3  | SCK   | P18-S
+   4  | SDA   | P23-S  (MOSI SPI — bukan I2C!)
+   5  | RES   | P16-S
+   6  | RS    | P17-S  (DC)
+   7  | CS    | P5-S
+   8  | LEDA  | P4-S   (backlight, di-drive HIGH oleh firmware)
+
+Catatan: sebelumnya LEDA dikira cukup dijumper langsung ke 3.3V, ternyata
+di board ini LEDA disalurkan lewat P4 sebagai kontrol backlight — firmware
+sudah set P4 HIGH terus jadi hasilnya sama (backlight selalu nyala), tapi
+pin-nya harus tetap disambung ke P4, bukan langsung ke jalur 3.3V.
+
+──────────────────────────────────────────────────────────────
+BUZZER (2 pin: sinyal + GND)
+──────────────────────────────────────────────────────────────
+SIGNAL (kaki panjang, tanda +) → P21
+GND    (kaki pendek)           → GND
+
+──────────────────────────────────────────────────────────────
+Ringkasan alokasi pin (tidak ada yang bentrok):
+──────────────────────────────────────────────────────────────
+Keypad      : 32, 33, 25, 26, 27, 14, 12, 13
+Fingerprint : 19, 22
+TFT         : 16, 17, 5, 18, 23, 4 (backlight)
+Buzzer      : 21
