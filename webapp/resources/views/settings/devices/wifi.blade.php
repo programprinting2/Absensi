@@ -14,12 +14,6 @@
                     <span class="text-gray-400">({{ $device->device_code }})</span>
                 </p>
 
-                @if (session('status'))
-                    <div class="bg-green-50 text-green-800 text-sm px-4 py-3 rounded-md border border-green-200">
-                        {{ session('status') }}
-                    </div>
-                @endif
-
                 <ol class="list-decimal list-inside space-y-2 text-sm text-gray-700">
                     <li>Klik <strong>Mulai Setup WiFi</strong> supaya device membuka mode konfigurasi.</li>
                     <li>Di HP/laptop, sambungkan ke WiFi <strong>{{ $apName }}</strong> (password: <strong>{{ $apPassword }}</strong>).</li>

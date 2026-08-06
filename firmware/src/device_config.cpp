@@ -34,6 +34,7 @@ void applyDefaults() {
     breakEndTexts = {"Yuk semangat kerja lagi !", "MANTAB ON TIME !", "OVER BREAK", ""};
     clockOutTexts = {"Terima Kasih", "SAMPAI JUMPA LAGI", "PULANG AWAL", ""};
     scheduleCache.clockInMinutes = 8 * 60;
+    scheduleCache.lateAfterMinutes = 8 * 60;
     scheduleCache.clockOutMinutes = 17 * 60;
     scheduleCache.breakDurationMinutes = 60;
     scheduleCache.loaded = true;
@@ -89,6 +90,14 @@ void parseFromDoc(JsonDocument &doc, bool resetToDefaults) {
     JsonObject sched = doc["schedule"];
     if (!sched.isNull()) {
         scheduleCache.clockInMinutes = parseTimeToMinutes(sched["clock_in_time"] | "08:00");
+        // late_after_time boleh null/kosong → pakai jam masuk (selaras webapp).
+        scheduleCache.lateAfterMinutes = scheduleCache.clockInMinutes;
+        if (!sched["late_after_time"].isNull()) {
+            String lateStr = sched["late_after_time"].as<String>();
+            if (lateStr.length() >= 4) {
+                scheduleCache.lateAfterMinutes = parseTimeToMinutes(lateStr);
+            }
+        }
         scheduleCache.clockOutMinutes = parseTimeToMinutes(sched["clock_out_time"] | "17:00");
         scheduleCache.breakDurationMinutes = sched["break_duration_minutes"] | 60;
         scheduleCache.loaded = true;

@@ -1,47 +1,152 @@
 <x-app-layout>
     <x-slot name="header">
-        <h2 class="font-semibold text-xl text-gray-800 leading-tight">Edit Karyawan</h2>
+        <div class="flex items-center justify-between">
+            <h2 class="font-semibold text-xl text-gray-800 leading-tight">Edit Karyawan</h2>
+            <a href="{{ route('employees.salary', $employee) }}" class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                Pengaturan Gaji
+            </a>
+        </div>
     </x-slot>
 
     <div class="py-12">
         <div class="max-w-xl mx-auto sm:px-6 lg:px-8 space-y-6">
-            @if (session('status'))
-                <div class="bg-green-50 text-green-800 text-sm px-4 py-3 rounded-md border border-green-200">
-                    {{ session('status') }}
+            <form id="employee-form" method="POST" action="{{ route('employees.update', $employee) }}" class="space-y-6">
+                @csrf
+                @method('PUT')
+
+                <!-- Data Dasar -->
+                <div class="bg-white overflow-hidden shadow-sm rounded-lg p-6">
+                    <h3 class="font-semibold text-gray-900 mb-4">Data Dasar</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <x-input-label for="employee_code" value="ID Karyawan (untuk keypad)" />
+                            <x-text-input id="employee_code" type="number" class="mt-1 block w-full bg-gray-50 text-gray-500" value="{{ $employee->employee_code }}" readonly disabled />
+                            <p class="mt-1 text-xs text-gray-400">Dibuat otomatis, tidak bisa diubah.</p>
+                        </div>
+
+                        <div>
+                            <x-input-label for="full_name" value="Nama Lengkap" />
+                            <x-text-input id="full_name" name="full_name" type="text" class="mt-1 block w-full" value="{{ old('full_name', $employee->full_name) }}" required />
+                            <x-input-error :messages="$errors->get('full_name')" class="mt-2" />
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <x-input-label for="nik" value="NIK (KTP)" />
+                                <x-text-input id="nik" name="nik" type="text" maxlength="16" class="mt-1 block w-full" value="{{ old('nik', $employee->nik) }}" />
+                                <x-input-error :messages="$errors->get('nik')" class="mt-2" />
+                            </div>
+                            <div>
+                                <x-input-label for="phone" value="No. Telepon" />
+                                <x-text-input id="phone" name="phone" type="text" maxlength="20" class="mt-1 block w-full" value="{{ old('phone', $employee->phone) }}" />
+                                <x-input-error :messages="$errors->get('phone')" class="mt-2" />
+                            </div>
+                        </div>
+
+                        <div>
+                            <x-input-label for="address" value="Alamat" />
+                            <textarea id="address" name="address" rows="2" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">{{ old('address', $employee->address) }}</textarea>
+                            <x-input-error :messages="$errors->get('address')" class="mt-2" />
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <input type="hidden" name="is_active" value="0">
+                            <input id="is_active" type="checkbox" name="is_active" value="1"
+                                   class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                   {{ old('is_active', $employee->is_active) ? 'checked' : '' }}>
+                            <x-input-label for="is_active" value="Aktif" />
+                        </div>
+                    </div>
                 </div>
-            @endif
 
-            <div class="bg-white overflow-hidden shadow-sm rounded-lg p-6">
-                <form id="employee-form" method="POST" action="{{ route('employees.update', $employee) }}" class="space-y-4">
-                    @csrf
-                    @method('PUT')
-
-                    <div>
-                        <x-input-label for="employee_code" value="ID Karyawan (untuk keypad)" />
-                        <x-text-input id="employee_code" type="number" class="mt-1 block w-full bg-gray-50 text-gray-500" value="{{ $employee->employee_code }}" readonly disabled />
-                        <p class="mt-1 text-xs text-gray-400">Dibuat otomatis, tidak bisa diubah.</p>
+                <!-- Data Kepegawaian -->
+                <div class="bg-white overflow-hidden shadow-sm rounded-lg p-6">
+                    <h3 class="font-semibold text-gray-900 mb-4">Data Kepegawaian</h3>
+                    <div class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <x-input-label for="position" value="Jabatan" />
+                                <x-text-input id="position" name="position" type="text" class="mt-1 block w-full" value="{{ old('position', $employee->position) }}" />
+                                <x-input-error :messages="$errors->get('position')" class="mt-2" />
+                            </div>
+                            <div>
+                                <x-input-label for="department" value="Departemen" />
+                                <x-text-input id="department" name="department" type="text" class="mt-1 block w-full" value="{{ old('department', $employee->department) }}" />
+                                <x-input-error :messages="$errors->get('department')" class="mt-2" />
+                            </div>
+                        </div>
+                        <div>
+                            <x-input-label for="join_date" value="Tanggal Bergabung" />
+                            <x-text-input id="join_date" name="join_date" type="date" class="mt-1 block w-full" value="{{ old('join_date', $employee->join_date?->format('Y-m-d')) }}" />
+                            <x-input-error :messages="$errors->get('join_date')" class="mt-2" />
+                        </div>
                     </div>
+                </div>
 
-                    <div>
-                        <x-input-label for="full_name" value="Nama Lengkap" />
-                        <x-text-input id="full_name" name="full_name" type="text" class="mt-1 block w-full" value="{{ old('full_name', $employee->full_name) }}" required />
-                        <x-input-error :messages="$errors->get('full_name')" class="mt-2" />
+                <!-- Data Perpajakan & BPJS -->
+                <div class="bg-white overflow-hidden shadow-sm rounded-lg p-6">
+                    <h3 class="font-semibold text-gray-900 mb-4">Perpajakan & BPJS</h3>
+                    <div class="space-y-4">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <x-input-label for="npwp" value="NPWP" />
+                                <x-text-input id="npwp" name="npwp" type="text" maxlength="25" class="mt-1 block w-full" value="{{ old('npwp', $employee->npwp) }}" placeholder="00.000.000.0-000.000" />
+                                <x-input-error :messages="$errors->get('npwp')" class="mt-2" />
+                            </div>
+                            <div>
+                                <x-input-label for="ptkp_status" value="Status PTKP" />
+                                <select id="ptkp_status" name="ptkp_status" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+                                    @foreach (['TK/0', 'TK/1', 'TK/2', 'TK/3', 'K/0', 'K/1', 'K/2', 'K/3'] as $status)
+                                        <option value="{{ $status }}" {{ old('ptkp_status', $employee->ptkp_status ?? 'TK/0') === $status ? 'selected' : '' }}>{{ $status }}</option>
+                                    @endforeach
+                                </select>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <x-input-label for="bpjs_kes" value="No. BPJS Kesehatan" />
+                                <x-text-input id="bpjs_kes" name="bpjs_kes" type="text" maxlength="20" class="mt-1 block w-full" value="{{ old('bpjs_kes', $employee->bpjs_kes) }}" />
+                                <x-input-error :messages="$errors->get('bpjs_kes')" class="mt-2" />
+                            </div>
+                            <div>
+                                <x-input-label for="bpjs_tk" value="No. BPJS Ketenagakerjaan" />
+                                <x-text-input id="bpjs_tk" name="bpjs_tk" type="text" maxlength="20" class="mt-1 block w-full" value="{{ old('bpjs_tk', $employee->bpjs_tk) }}" />
+                                <x-input-error :messages="$errors->get('bpjs_tk')" class="mt-2" />
+                            </div>
+                        </div>
                     </div>
+                </div>
 
-                    <div class="flex items-center gap-2">
-                        <input type="hidden" name="is_active" value="0">
-                        <input id="is_active" type="checkbox" name="is_active" value="1"
-                               class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                               {{ old('is_active', $employee->is_active) ? 'checked' : '' }}>
-                        <x-input-label for="is_active" value="Aktif" />
+                <!-- Data Bank -->
+                <div class="bg-white overflow-hidden shadow-sm rounded-lg p-6">
+                    <h3 class="font-semibold text-gray-900 mb-4">Rekening Bank</h3>
+                    <div class="space-y-4">
+                        <div>
+                            <x-input-label for="bank_name" value="Nama Bank" />
+                            <x-text-input id="bank_name" name="bank_name" type="text" class="mt-1 block w-full" value="{{ old('bank_name', $employee->bank_name) }}" placeholder="BCA, BRI, Mandiri, dll." />
+                            <x-input-error :messages="$errors->get('bank_name')" class="mt-2" />
+                        </div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <x-input-label for="bank_account" value="Nomor Rekening" />
+                                <x-text-input id="bank_account" name="bank_account" type="text" maxlength="30" class="mt-1 block w-full" value="{{ old('bank_account', $employee->bank_account) }}" />
+                                <x-input-error :messages="$errors->get('bank_account')" class="mt-2" />
+                            </div>
+                            <div>
+                                <x-input-label for="bank_holder" value="Atas Nama" />
+                                <x-text-input id="bank_holder" name="bank_holder" type="text" class="mt-1 block w-full" value="{{ old('bank_holder', $employee->bank_holder) }}" />
+                                <x-input-error :messages="$errors->get('bank_holder')" class="mt-2" />
+                            </div>
+                        </div>
                     </div>
+                </div>
 
-                    <div class="flex justify-end items-center gap-4">
-                        <a href="{{ route('employees.index') }}" class="text-sm text-gray-600 hover:text-gray-900">Batal</a>
-                        <x-primary-button>Simpan</x-primary-button>
-                    </div>
-                </form>
-            </div>
+                <div class="flex justify-end items-center gap-4">
+                    <a href="{{ route('employees.index') }}" class="text-sm text-gray-600 hover:text-gray-900">Batal</a>
+                    <x-primary-button>Simpan</x-primary-button>
+                </div>
+            </form>
 
             <div class="bg-white overflow-hidden shadow-sm rounded-lg p-6">
                 <h3 class="font-semibold text-gray-800 mb-3">Sidik Jari Terdaftar</h3>
@@ -87,6 +192,55 @@
                         </select>
                     </div>
                     <x-primary-button>Tambah Sidik Jari</x-primary-button>
+                </form>
+            </div>
+
+            <div class="bg-white overflow-hidden shadow-sm rounded-lg p-6">
+                <h3 class="font-semibold text-gray-800 mb-1">Akses Portal Absensi</h3>
+                <p class="text-sm text-gray-500 mb-4">
+                    Buat akun login agar karyawan bisa melihat absensi bulan berjalan di dashboard khusus.
+                </p>
+
+                @php $portalUser = $employee->portalUser; @endphp
+
+                <form method="POST" action="{{ route('employees.portal.update', $employee) }}" class="space-y-4">
+                    @csrf
+                    @method('PUT')
+
+                    <div class="flex items-center gap-2">
+                        <input type="hidden" name="portal_enabled" value="0">
+                        <input id="portal_enabled" type="checkbox" name="portal_enabled" value="1"
+                               class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                               {{ old('portal_enabled', $portalUser ? '1' : '0') == '1' ? 'checked' : '' }}>
+                        <x-input-label for="portal_enabled" value="Aktifkan akses portal" />
+                    </div>
+
+                    <div>
+                        <x-input-label for="portal_email" value="Email login" />
+                        <x-text-input id="portal_email" name="portal_email" type="email" class="mt-1 block w-full"
+                                      value="{{ old('portal_email', $portalUser?->email) }}" autocomplete="off" />
+                        <x-input-error :messages="$errors->get('portal_email')" class="mt-2" />
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <x-input-label for="portal_password" value="Password {{ $portalUser ? '(kosongkan jika tidak diubah)' : '' }}" />
+                            <x-text-input id="portal_password" name="portal_password" type="password" class="mt-1 block w-full" autocomplete="new-password" />
+                            <x-input-error :messages="$errors->get('portal_password')" class="mt-2" />
+                        </div>
+                        <div>
+                            <x-input-label for="portal_password_confirmation" value="Konfirmasi password" />
+                            <x-text-input id="portal_password_confirmation" name="portal_password_confirmation" type="password" class="mt-1 block w-full" autocomplete="new-password" />
+                        </div>
+                    </div>
+
+                    @if ($portalUser)
+                        <p class="text-xs text-green-700">Portal aktif · terakhir update {{ $portalUser->updated_at?->timezone(config('app.timezone'))->format('d/m/Y H:i') }}</p>
+                    @endif
+
+                    <div class="flex justify-end">
+                        <x-primary-button>Simpan Akses Portal</x-primary-button>
+                    </div>
                 </form>
             </div>
 

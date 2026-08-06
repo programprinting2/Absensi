@@ -167,7 +167,7 @@ bool fetchActiveWorkSchedule(String &outJson) {
     client.setInsecure();
 
     HTTPClient http;
-    String url = restUrl("work_schedules?is_active=eq.true&select=clock_in_time,clock_out_time,break_duration_minutes");
+    String url = restUrl("work_schedules?is_active=eq.true&select=clock_in_time,late_after_time,clock_out_time,break_duration_minutes");
     http.begin(client, url);
     applyCommonHeaders(http);
 

@@ -1,8 +1,8 @@
 <?php
 
-use App\Models\AttendanceLog;
 use App\Models\Employee;
 use App\Models\WorkSchedule;
+use App\Support\AppTimezone;
 use App\Services\AttendanceReportService;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
@@ -11,139 +11,197 @@ new #[Layout('layouts.app')] class extends Component
 {
     public function with(AttendanceReportService $reports): array
     {
-        $employees = Employee::where('is_active', true)->orderBy('employee_code')->get();
-        $schedule = WorkSchedule::active();
+        $now = AppTimezone::nowDisplay();
+        $year = (int) $now->year;
+        $month = (int) $now->month;
+        $periodLabel = $now->copy()->locale('id')->translatedFormat('F Y');
 
-        $todayLogs = AttendanceLog::whereIn('employee_id', $employees->pluck('id'))
-            ->whereBetween('event_time', [now()->startOfDay(), now()->endOfDay()])
-            ->get();
+        $employees = Employee::query()
+            ->where('is_active', true)
+            ->orderBy('full_name')
+            ->get(['id', 'full_name', 'employee_code', 'created_at']);
 
-        $rows = $reports->todayStatusForEmployees($employees, $todayLogs, $schedule);
+        // Hanya bulan aktif — tidak query rekap bulan sebelumnya.
+        $logs = $reports->forRange('month', $year, $month, null, null);
+        [$rangeStart, $rangeEnd] = $reports->resolveRange('month', $year, $month, null);
+
+        $rows = $reports->pivotByEmployeeAndDate(
+            $logs,
+            WorkSchedule::active(),
+            $employees,
+            $rangeStart,
+            $rangeEnd,
+        );
+
+        $fmtHm = function (int $minutes): string {
+            $total = abs($minutes);
+            $hours = intdiv($total, 60);
+            $remain = $total % 60;
+
+            return "{$hours} : {$remain}";
+        };
+
+        $buildStats = function ($group) {
+            return [
+                'total' => $group->count(),
+                'ok' => $group->where('compliance_ok', true)->count(),
+                'not_ok' => $group->filter(fn ($r) => empty($r['compliance_ok']))->count(),
+                'tidak_masuk' => $group->where('status', 'Tidak Masuk')->count(),
+                'terlambat' => $group->where('is_late', true)->count(),
+                'istirahat_lebih' => $group->where('is_over_break', true)->count(),
+                'pulang_awal' => $group->where('is_early_out', true)->count(),
+                'jam_kerja_kurang' => $group->where('is_short_work', true)->count(),
+                'menit_terlambat' => (int) $group->sum(fn ($r) => (int) ($r['late_minutes'] ?? 0)),
+                'menit_istirahat_lebih' => (int) $group->sum(fn ($r) => (int) ($r['over_break_minutes'] ?? 0)),
+                'menit_pulang_awal' => (int) $group->sum(fn ($r) => (int) ($r['early_out_minutes'] ?? 0)),
+                'menit_jam_kerja_kurang' => (int) $group->sum(fn ($r) => (int) ($r['short_work_minutes'] ?? 0)),
+            ];
+        };
+
+        $summary = $buildStats($rows);
+
+        $detailGroups = $rows
+            ->groupBy(fn ($r) => $r['employee']->id)
+            ->map(function ($group) use ($buildStats) {
+                $employee = $group->first()['employee'];
+
+                return [
+                    'employee' => $employee,
+                    'rows' => $group->sortByDesc('date')->values(),
+                    'stats' => $buildStats($group),
+                ];
+            })
+            ->sortBy(fn ($g) => mb_strtolower($g['employee']->full_name))
+            ->values();
 
         return [
-            'rows' => $rows,
-            'summary' => [
-                'masuk' => $rows->whereIn('status', ['Bekerja', 'Istirahat', 'Pulang'])->count(),
-                'off' => $rows->where('status', 'Off')->count(),
-                'istirahat' => $rows->where('status', 'Istirahat')->count(),
-                'terlambat' => $rows->where('is_late', true)->count(),
-                'over_break' => $rows->where('is_over_break', true)->count(),
-            ],
+            'periodLabel' => $periodLabel,
+            'summary' => $summary,
+            'detailGroups' => $detailGroups,
+            'fmtHm' => $fmtHm,
+            'todayLabel' => $now->copy()->locale('id')->translatedFormat('l, j F Y'),
         ];
     }
 }; ?>
 
-<div wire:poll.5s>
-    <div class="py-12">
-        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 space-y-6">
-            <div
-                x-data="{ now: new Date({{ now()->timestamp * 1000 }}) }"
-                x-init="setInterval(() => now = new Date(now.getTime() + 1000), 1000)"
-                class="bg-white shadow-sm rounded-lg p-5 flex flex-wrap items-center justify-between gap-4"
-            >
-                <div class="flex items-center gap-3">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z" clip-rule="evenodd" />
-                    </svg>
-                    <div>
-                        <p class="text-xs text-gray-500 uppercase tracking-wider">Tanggal</p>
-                        <p class="text-lg font-semibold text-gray-800"
-                           x-text="now.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })"></p>
-                    </div>
-                </div>
+<div>
+    <x-slot name="header">
+        <div>
+            <h2 class="font-semibold text-xl text-gray-800 leading-tight">My Dashboard</h2>
+            <p class="mt-0.5 text-sm text-gray-500">Laporan absensi · {{ $periodLabel }}</p>
+        </div>
+    </x-slot>
 
-                <div class="flex items-center gap-3">
-                    <div class="text-right">
-                        <p class="text-xs text-gray-500 uppercase tracking-wider">Waktu Server</p>
-                        <p class="text-2xl font-mono font-semibold text-gray-800"
-                           x-text="now.toLocaleTimeString('id-ID', { hour12: false })"></p>
-                    </div>
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-gray-400" viewBox="0 0 20 20" fill="currentColor">
-                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
-                    </svg>
+    <div class="py-6" wire:poll.60s.visible>
+        <div class="max-w-6xl mx-auto sm:px-6 lg:px-8 space-y-4">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div class="bg-white shadow-sm rounded-lg p-4">
+                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Hari kerja</p>
+                    <p class="mt-1 text-2xl font-semibold text-gray-800">{{ $summary['total'] }}</p>
+                </div>
+                <div class="bg-white shadow-sm rounded-lg p-4">
+                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">OK</p>
+                    <p class="mt-1 text-2xl font-semibold text-green-700">{{ $summary['ok'] }}</p>
+                </div>
+                <div class="bg-white shadow-sm rounded-lg p-4">
+                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Not OK</p>
+                    <p class="mt-1 text-2xl font-semibold text-red-700">{{ $summary['not_ok'] }}</p>
+                </div>
+                <div class="bg-white shadow-sm rounded-lg p-4">
+                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Tidak masuk</p>
+                    <p class="mt-1 text-2xl font-semibold text-gray-600">{{ $summary['tidak_masuk'] }}</p>
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                <div class="bg-white shadow-sm rounded-lg p-5">
-                    <p class="text-sm font-medium text-gray-500">Masuk</p>
-                    <p class="mt-1 text-2xl font-semibold text-green-700">{{ $summary['masuk'] }}</p>
-                </div>
-                <div class="bg-white shadow-sm rounded-lg p-5">
-                    <p class="text-sm font-medium text-gray-500">Tidak Masuk (Off)</p>
-                    <p class="mt-1 text-2xl font-semibold text-gray-500">{{ $summary['off'] }}</p>
-                </div>
-                <div class="bg-white shadow-sm rounded-lg p-5">
-                    <p class="text-sm font-medium text-gray-500">Sedang Istirahat</p>
-                    <p class="mt-1 text-2xl font-semibold text-yellow-700">{{ $summary['istirahat'] }}</p>
-                </div>
-                <div class="bg-white shadow-sm rounded-lg p-5">
-                    <p class="text-sm font-medium text-gray-500">Terlambat</p>
-                    <p class="mt-1 text-2xl font-semibold text-red-700">{{ $summary['terlambat'] }}</p>
-                </div>
-                <div class="bg-white shadow-sm rounded-lg p-5">
-                    <p class="text-sm font-medium text-gray-500">Over Break</p>
-                    <p class="mt-1 text-2xl font-semibold text-red-700">{{ $summary['over_break'] }}</p>
-                </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $summary['terlambat'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
+                    Telat {{ $summary['terlambat'] }}@if ($summary['menit_terlambat'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($summary['menit_terlambat']) }})</span>@endif
+                </span>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $summary['istirahat_lebih'] > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600' }}">
+                    Istirahat+ {{ $summary['istirahat_lebih'] }}@if ($summary['menit_istirahat_lebih'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($summary['menit_istirahat_lebih']) }})</span>@endif
+                </span>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $summary['pulang_awal'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
+                    Pulang awal {{ $summary['pulang_awal'] }}@if ($summary['menit_pulang_awal'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($summary['menit_pulang_awal']) }})</span>@endif
+                </span>
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $summary['jam_kerja_kurang'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
+                    Jam kurang {{ $summary['jam_kerja_kurang'] }}@if ($summary['menit_jam_kerja_kurang'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($summary['menit_jam_kerja_kurang']) }})</span>@endif
+                </span>
             </div>
 
-            <div>
-                <h3 class="text-lg font-semibold text-gray-800 mb-3">Absensi Hari Ini</h3>
+            <div class="space-y-2" x-data="{ open: {} }">
+                @forelse ($detailGroups as $group)
+                    @php $gid = $group['employee']->id; $s = $group['stats']; @endphp
+                    <div wire:key="my-dash-{{ $gid }}" class="bg-white shadow-sm rounded-lg overflow-hidden border border-gray-100">
+                        <button
+                            type="button"
+                            class="w-full px-4 py-3 text-left hover:bg-gray-50 transition"
+                            @click="open['{{ $gid }}'] = !open['{{ $gid }}']"
+                            :aria-expanded="!!open['{{ $gid }}']"
+                        >
+                            <div class="flex items-center gap-3 min-w-0">
+                                <svg class="h-4 w-4 text-gray-500 shrink-0 transition-transform" :class="open['{{ $gid }}'] ? 'rotate-90' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                    <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
+                                </svg>
+                                <span class="text-sm font-semibold text-gray-900 truncate">{{ $group['employee']->full_name }}</span>
+                                <span class="text-xs text-gray-400 shrink-0">{{ $s['total'] }} hari</span>
+                            </div>
+                            <div class="mt-1.5 ml-7 flex flex-wrap items-center gap-1.5">
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">OK {{ $s['ok'] }}</span>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['not_ok'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">Not OK {{ $s['not_ok'] }}</span>
+                                @if ($s['tidak_masuk'] > 0)
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Absen {{ $s['tidak_masuk'] }}</span>
+                                @endif
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['terlambat'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
+                                    Telat {{ $s['terlambat'] }}@if ($s['menit_terlambat'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($s['menit_terlambat']) }})</span>@endif
+                                </span>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['istirahat_lebih'] > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600' }}">
+                                    Istirahat+ {{ $s['istirahat_lebih'] }}@if ($s['menit_istirahat_lebih'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($s['menit_istirahat_lebih']) }})</span>@endif
+                                </span>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['pulang_awal'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
+                                    Pulang awal {{ $s['pulang_awal'] }}@if ($s['menit_pulang_awal'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($s['menit_pulang_awal']) }})</span>@endif
+                                </span>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['jam_kerja_kurang'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
+                                    Jam kurang {{ $s['jam_kerja_kurang'] }}@if ($s['menit_jam_kerja_kurang'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($s['menit_jam_kerja_kurang']) }})</span>@endif
+                                </span>
+                            </div>
+                        </button>
 
-                <div class="bg-white shadow-sm rounded-lg overflow-hidden">
-                    <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200 text-sm">
-                            <thead class="bg-gray-50">
-                                <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    <th class="px-6 py-3">Karyawan</th>
-                                    <th class="px-6 py-3">Masuk</th>
-                                    <th class="px-6 py-3">Istirahat</th>
-                                    <th class="px-6 py-3">Kembali</th>
-                                    <th class="px-6 py-3">Durasi</th>
-                                    <th class="px-6 py-3">Pulang</th>
-                                    <th class="px-6 py-3 text-right">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-gray-100 bg-white">
-                                @forelse ($rows as $row)
-                                    <tr wire:key="dashboard-{{ $row['employee']->id }}" class="hover:bg-gray-50">
-                                        <td class="px-6 py-3 whitespace-nowrap font-medium text-gray-900">{{ $row['employee']->full_name }}</td>
-                                        <td class="px-6 py-3 whitespace-nowrap">
-                                            <x-status-tooltip :value="$row['clock_in'] ?? '-'" :flagged="$row['is_late']" tooltip="Terlambat" />
-                                        </td>
-                                        <td class="px-6 py-3 whitespace-nowrap text-gray-700">{{ $row['break_start'] ?? '-' }}</td>
-                                        <td class="px-6 py-3 whitespace-nowrap text-gray-700">{{ $row['break_end'] ?? '-' }}</td>
-                                        <td class="px-6 py-3 whitespace-nowrap">
-                                            <x-status-tooltip :value="$row['break_duration'] ?? '-'" :flagged="$row['is_over_break']" tooltip="Over Break" />
-                                        </td>
-                                        <td class="px-6 py-3 whitespace-nowrap">
-                                            <x-status-tooltip :value="$row['clock_out'] ?? '-'" :flagged="$row['is_early_out']" tooltip="Pulang Lebih Awal" />
-                                        </td>
-                                        <td class="px-6 py-3 whitespace-nowrap text-right">
-                                            @php
-                                                $statusColor = match ($row['status']) {
-                                                    'Bekerja' => 'bg-green-100 text-green-800',
-                                                    'Istirahat' => 'bg-yellow-100 text-yellow-800',
-                                                    'Pulang' => 'bg-blue-100 text-blue-800',
-                                                    default => 'bg-gray-100 text-gray-600',
-                                                };
-                                            @endphp
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $statusColor }}">
-                                                {{ $row['status'] }}
-                                            </span>
-                                        </td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="7" class="px-6 py-6 text-center text-gray-500">
-                                            Belum ada karyawan aktif.
-                                        </td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
+                        <div x-show="open['{{ $gid }}']" x-cloak class="border-t border-gray-100">
+                            <div class="overflow-x-auto">
+                                <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                    <thead class="bg-gray-50">
+                                        <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                            <th class="px-6 py-2.5">Tanggal</th>
+                                            <th class="px-6 py-2.5">Masuk</th>
+                                            <th class="px-6 py-2.5">Istirahat</th>
+                                            <th class="px-6 py-2.5">Kembali</th>
+                                            <th class="px-6 py-2.5">Pulang</th>
+                                            <th class="px-6 py-2.5">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-100 bg-white">
+                                        @foreach ($group['rows'] as $row)
+                                            <tr wire:key="my-dash-row-{{ $gid }}-{{ $row['date'] }}" class="hover:bg-gray-50 {{ ($row['status'] ?? '') === 'Tidak Masuk' ? 'bg-red-50/40' : '' }}">
+                                                <td class="px-6 py-3 whitespace-nowrap text-gray-700">{{ $row['date_label'] }}</td>
+                                                <td class="px-6 py-3 whitespace-nowrap tabular-nums {{ !empty($row['is_late']) ? 'text-red-600 font-medium' : 'text-gray-700' }}">{{ $row['clock_in'] ?? '—' }}</td>
+                                                <td class="px-6 py-3 whitespace-nowrap text-gray-700 tabular-nums">{{ $row['break_start'] ?? '—' }}</td>
+                                                <td class="px-6 py-3 whitespace-nowrap text-gray-700 tabular-nums">{{ $row['break_end'] ?? '—' }}</td>
+                                                <td class="px-6 py-3 whitespace-nowrap tabular-nums {{ !empty($row['is_early_out']) || !empty($row['is_short_work']) ? 'text-red-600 font-medium' : 'text-gray-700' }}">{{ $row['clock_out'] ?? '—' }}</td>
+                                                <td class="px-6 py-3 align-top">
+                                                    <x-attendance-status :parts="$row['status_parts'] ?? []" :fallback-status="$row['status']" />
+                                                </td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
-                </div>
+                @empty
+                    <div class="bg-white shadow-sm rounded-lg px-6 py-10 text-center text-sm text-gray-500">
+                        Belum ada data absensi untuk {{ $periodLabel }}.
+                    </div>
+                @endforelse
             </div>
         </div>
     </div>

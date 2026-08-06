@@ -65,7 +65,19 @@ return [
     |
     */
 
-    'timezone' => 'Asia/Jakarta',
+    'timezone' => env('APP_TIMEZONE', 'UTC'),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Display Timezone
+    |--------------------------------------------------------------------------
+    |
+    | Absensi disimpan sebagai UTC. Nilai ini dipakai sebagai default
+    | konversi tampilan (bisa diganti per perusahaan di Pengaturan).
+    |
+    */
+
+    'display_timezone' => env('DISPLAY_TIMEZONE', 'Asia/Jakarta'),
 
     /*
     |--------------------------------------------------------------------------

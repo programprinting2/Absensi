@@ -14,6 +14,8 @@ return new class extends Migration
             $table->time('clock_in_time');
             $table->time('clock_out_time');
             $table->integer('break_duration_minutes')->default(60);
+            $table->integer('work_duration_minutes')->default(480);
+            $table->time('late_after_time')->nullable();
             $table->boolean('is_active')->default(true);
             $table->timestamp('created_at')->useCurrent();
         });

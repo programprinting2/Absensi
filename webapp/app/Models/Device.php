@@ -45,4 +45,9 @@ class Device extends Model
     {
         return $this->hasMany(AttendanceLog::class);
     }
+
+    public function fingerprintTemplates()
+    {
+        return $this->hasMany(FingerprintTemplate::class);
+    }
 }

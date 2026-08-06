@@ -16,6 +16,8 @@ class WorkSchedule extends Model
         'clock_in_time',
         'clock_out_time',
         'break_duration_minutes',
+        'work_duration_minutes',
+        'late_after_time',
         'is_active',
     ];
 
@@ -29,6 +31,6 @@ class WorkSchedule extends Model
 
     public static function active(): ?self
     {
-        return static::where('is_active', true)->first();
+        return once(fn () => static::where('is_active', true)->first());
     }
 }

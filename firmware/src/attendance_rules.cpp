@@ -128,10 +128,11 @@ AttendanceIndicator evaluate(const String &employeeId, AttendanceType type, time
     switch (type) {
         case AttendanceType::ClockIn: {
             int nowMin = minutesOfDay(eventTime);
-            if (sched.loaded && nowMin > sched.clockInMinutes) {
+            // Samakan dengan webapp: terlambat setelah late_after_time (fallback jam masuk).
+            if (sched.loaded && nowMin > sched.lateAfterMinutes) {
                 result.level = IndicatorLevel::Warning;
                 result.barText = texts.indicatorWarnPrefix + " " +
-                                 formatDuration(nowMin - sched.clockInMinutes);
+                                 formatDuration(nowMin - sched.lateAfterMinutes);
             }
             break;
         }

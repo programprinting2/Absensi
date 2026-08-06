@@ -14,6 +14,7 @@ struct ModeTexts {
 
 struct WorkSchedule {
     int clockInMinutes = 8 * 60;
+    int lateAfterMinutes = 8 * 60; // ambang terlambat; fallback = clockInMinutes
     int clockOutMinutes = 17 * 60;
     int breakDurationMinutes = 60;
     bool loaded = false;
