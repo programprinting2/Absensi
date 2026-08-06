@@ -90,6 +90,7 @@ class UserAccessController extends Controller
             }
         }
 
+        // Role Karyawan hanya untuk akun yang sudah ditautkan lewat Edit Karyawan → Akses Portal.
         if ($data['role'] === User::ROLE_EMPLOYEE) {
             if (blank($user->employee_id)) {
                 return redirect()

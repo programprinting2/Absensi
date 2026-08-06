@@ -191,13 +191,13 @@
                             <input type="hidden" name="role" value="employee">
                             <input type="hidden" name="employee_id" x-bind:value="editing.employeeId">
                             <p class="mt-1 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Karyawan</p>
-                            <p class="mt-1 text-xs text-gray-500">Akun terhubung ke data karyawan ini. Ubah email/password di sini; buat/hapus portal lewat Edit Karyawan.</p>
+                            <p class="mt-1 text-xs text-gray-500">Akun terhubung ke data karyawan. Ubah email/password di sini; buat/hapus portal lewat Edit Karyawan.</p>
                         </div>
                     </template>
                     <template x-if="!editing.isEmployee">
                         <select id="edit_user_role" name="role" x-model="editing.role"
                                 class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-indigo-500 focus:border-indigo-500" required>
-                            @foreach ($staffRoles as $role)
+                            @foreach ($roles as $role)
                                 <option value="{{ $role->slug }}">{{ $role->name }}</option>
                             @endforeach
                         </select>
