@@ -13,7 +13,7 @@
         } elseif ($errors->any() && ! request()->isMethod('get')) {
             $resolvedTab = session('settings_tab', 'identitas');
         } else {
-            $resolvedTab = $activeTab ?? 'perangkat';
+            $resolvedTab = request('tab', $activeTab ?? 'perangkat');
         }
     @endphp
 
@@ -79,6 +79,18 @@
                             </svg>
                             Hak Akses
                         </button>
+                        <a href="{{ route('tools.database') }}"
+                           @class([
+                               'no-underline inline-flex items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 transition-colors',
+                               request()->routeIs('tools.database*', 'tools.google-drive*')
+                                   ? 'border-[#f7340d] text-[#f7340d]'
+                                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
+                           ])>
+                            <svg class="w-[16px] h-[16px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+                            </svg>
+                            Database
+                        </a>
                     </div>
                 </nav>
 

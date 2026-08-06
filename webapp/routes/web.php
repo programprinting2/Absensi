@@ -2,12 +2,15 @@
 
 use App\Http\Controllers\AllowanceTypeController;
 use App\Http\Controllers\CashBonController;
+use App\Http\Controllers\DatabaseBackupController;
+use App\Http\Controllers\DatabaseInfoController;
 use App\Http\Controllers\DeductionTypeController;
 use App\Http\Controllers\DeviceSettingsController;
 use App\Http\Controllers\DeviceWifiController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\EmployeeSalaryController;
 use App\Http\Controllers\FingerprintEnrollController;
+use App\Http\Controllers\GoogleDriveController;
 use App\Http\Controllers\ParameterController;
 use App\Http\Controllers\PayrollSettingsController;
 use App\Http\Controllers\PaySlipController;
@@ -80,6 +83,44 @@ Route::middleware(['auth', 'verified', 'menu'])->group(function () {
     Route::post('settings/users', [UserAccessController::class, 'store'])->name('settings.users.store');
     Route::put('settings/users/{user}', [UserAccessController::class, 'update'])->name('settings.users.update');
     Route::delete('settings/users/{user}', [UserAccessController::class, 'destroy'])->name('settings.users.destroy');
+
+    Route::get('tools/database', [DatabaseInfoController::class, 'index'])->name('tools.database');
+    Route::post('tools/database/backup/start', [DatabaseBackupController::class, 'backupStart'])->name('tools.database.backup.start');
+    Route::post('tools/database/backup/run', [DatabaseBackupController::class, 'backupRun'])->name('tools.database.backup.run');
+    Route::get('tools/database/backup/download/{token}', [DatabaseBackupController::class, 'backupDownload'])
+        ->where('token', '[^/]+')
+        ->name('tools.database.backup.download');
+    Route::get('tools/database/progress/{token}', [DatabaseBackupController::class, 'progress'])
+        ->where('token', '[^/]+')
+        ->name('tools.database.progress');
+    Route::post('tools/database/restore/prepare', [DatabaseBackupController::class, 'restorePrepare'])->name('tools.database.restore.prepare');
+    Route::post('tools/database/restore/run', [DatabaseBackupController::class, 'restoreRun'])->name('tools.database.restore.run');
+    Route::post('tools/database/tables/clear', [DatabaseInfoController::class, 'clearTables'])->name('tools.database.tables.clear');
+
+    Route::post('tools/database/migration/source/test', [DatabaseInfoController::class, 'testSourceConnection'])->name('tools.database.migration.source.test');
+    Route::post('tools/database/migration/source/save-config', [DatabaseInfoController::class, 'saveSourceConfig'])->name('tools.database.migration.source.save-config');
+    Route::get('tools/database/migration/source/load-config', [DatabaseInfoController::class, 'loadSourceConfig'])->name('tools.database.migration.source.load-config');
+    Route::post('tools/database/migration/destination/test', [DatabaseInfoController::class, 'testDestinationConnection'])->name('tools.database.migration.destination.test');
+    Route::post('tools/database/migration/destination/save-config', [DatabaseInfoController::class, 'saveDestinationConfig'])->name('tools.database.migration.destination.save-config');
+    Route::get('tools/database/migration/destination/load-config', [DatabaseInfoController::class, 'loadDestinationConfig'])->name('tools.database.migration.destination.load-config');
+    Route::post('tools/database/migration/destination/clear', [DatabaseInfoController::class, 'clearDestinationData'])->name('tools.database.migration.destination.clear');
+    Route::post('tools/database/migration/start', [DatabaseInfoController::class, 'startMigration'])->name('tools.database.migration.start');
+    Route::post('tools/database/migration/run', [DatabaseInfoController::class, 'runMigrationNow'])->name('tools.database.migration.run');
+    Route::get('tools/database/migration/switch/preview', [DatabaseInfoController::class, 'previewSwitchServer'])->name('tools.database.migration.switch.preview');
+    Route::post('tools/database/migration/switch/execute', [DatabaseInfoController::class, 'executeSwitchServer'])->name('tools.database.migration.switch.execute');
+    Route::get('tools/database/migration/switch/rollback/preview', [DatabaseInfoController::class, 'previewRollbackSwitchServer'])->name('tools.database.migration.switch.rollback.preview');
+    Route::post('tools/database/migration/switch/rollback/execute', [DatabaseInfoController::class, 'executeRollbackSwitchServer'])->name('tools.database.migration.switch.rollback.execute');
+
+    Route::get('tools/google-drive', [GoogleDriveController::class, 'index'])->name('tools.google-drive.index');
+    Route::post('tools/google-drive/upload', [GoogleDriveController::class, 'upload'])->name('tools.google-drive.upload');
+    Route::get('tools/google-drive/check-config', [GoogleDriveController::class, 'checkConfig'])->name('tools.google-drive.check-config');
+    Route::get('tools/google-drive/debug', [GoogleDriveController::class, 'debug'])->name('tools.google-drive.debug');
+    Route::post('tools/google-drive/upload-credentials', [GoogleDriveController::class, 'uploadCredentials'])->name('tools.google-drive.upload-credentials');
+    Route::get('tools/google-drive/files', [GoogleDriveController::class, 'listFiles'])->name('tools.google-drive.files');
+    Route::delete('tools/google-drive/delete', [GoogleDriveController::class, 'deleteFile'])->name('tools.google-drive.delete');
+    Route::get('tools/google-drive/oauth', [GoogleDriveController::class, 'oauthRedirect'])->name('tools.google-drive.oauth');
+    Route::get('tools/google-drive/oauth/callback', [GoogleDriveController::class, 'oauthCallback'])->name('tools.google-drive.oauth.callback');
+    Route::post('tools/google-drive/oauth/disconnect', [GoogleDriveController::class, 'oauthDisconnect'])->name('tools.google-drive.oauth.disconnect');
 
     Route::get('settings/devices/{device}/edit', [DeviceSettingsController::class, 'edit'])->name('settings.devices.edit');
     Route::put('settings/devices/{device}', [DeviceSettingsController::class, 'update'])->name('settings.devices.update');

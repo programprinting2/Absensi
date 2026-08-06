@@ -16,6 +16,8 @@ class EnsureMenuAccess
             abort(403);
         }
 
+        MenuRegistry::syncNewMenusToRoles();
+
         $routeName = $request->route()?->getName();
         $menuKey = MenuRegistry::menuKeyForRoute($routeName);
 

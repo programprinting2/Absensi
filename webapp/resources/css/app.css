@@ -9,3 +9,17 @@
 :root {
     --livewire-progress-bar-color: #f7340d;
 }
+
+/* Absensi: link tanpa underline (hindari bocor CSS pihak ketiga seperti Bootstrap). */
+a,
+a:hover,
+a:focus,
+a:active {
+    text-decoration: none !important;
+}
+
+/* Izinkan utilitas Tailwind `.underline` yang memang disengaja (auth, dsb.). */
+a.underline,
+.underline {
+    text-decoration: underline !important;
+}
