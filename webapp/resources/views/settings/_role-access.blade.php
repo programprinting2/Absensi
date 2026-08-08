@@ -351,7 +351,7 @@
                         @unless ($selectedRole->is_system)
                             <x-danger-button
                                 form="delete-role-{{ $selectedRole->id }}"
-                                onclick="return confirm('Hapus role ini?')"
+                                onclick="return confirmSubmit(event, 'Hapus role ini?')"
                             >Hapus Role</x-danger-button>
                         @endunless
                     </div>

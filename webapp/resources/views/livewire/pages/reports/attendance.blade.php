@@ -294,41 +294,34 @@ new #[Layout('layouts.app')] class extends Component
             });
         };
 
-        $summary = [
-            'total' => $rows->count(),
-            'ok' => $rows->where('compliance_ok', true)->count(),
-            'not_ok' => $rows->filter(fn ($r) => empty($r['compliance_ok']))->count(),
-            'tidak_masuk' => $rows->where('status', 'Tidak Masuk')->count(),
-            'terlambat' => $rows->where('is_late', true)->count(),
-            'istirahat_lebih' => $rows->where('is_over_break', true)->count(),
-            'pulang_awal' => $rows->where('is_early_out', true)->count(),
-            'jam_kerja_kurang' => $rows->where('is_short_work', true)->count(),
-            'menit_terlambat' => (int) $rows->sum(fn ($r) => (int) ($r['late_minutes'] ?? 0)),
-            'menit_istirahat_lebih' => (int) $rows->sum(fn ($r) => (int) ($r['over_break_minutes'] ?? 0)),
-            'menit_pulang_awal' => (int) $rows->sum(fn ($r) => (int) ($r['early_out_minutes'] ?? 0)),
-            'menit_jam_kerja_kurang' => (int) $rows->sum(fn ($r) => (int) ($r['short_work_minutes'] ?? 0)),
-        ];
+        $buildStats = function ($group) {
+            return [
+                'total' => $group->count(),
+                'ok' => $group->where('compliance_ok', true)->count(),
+                'not_ok' => $group->filter(fn ($r) => empty($r['compliance_ok']))->count(),
+                'tidak_masuk' => $group->where('status', 'Tidak Masuk')->count(),
+                'terlambat' => $group->where('is_late', true)->count(),
+                'istirahat_lebih' => $group->where('is_over_break', true)->count(),
+                'pulang_awal' => $group->where('is_early_out', true)->count(),
+                'jam_kerja_kurang' => $group->where('is_short_work', true)->count(),
+                'lembur' => $group->filter(fn ($r) => (int) ($r['overtime_minutes'] ?? 0) > 0)->count(),
+                'menit_terlambat' => (int) $group->sum(fn ($r) => (int) ($r['late_minutes'] ?? 0)),
+                'menit_istirahat_lebih' => (int) $group->sum(fn ($r) => (int) ($r['over_break_minutes'] ?? 0)),
+                'menit_pulang_awal' => (int) $group->sum(fn ($r) => (int) ($r['early_out_minutes'] ?? 0)),
+                'menit_jam_kerja_kurang' => (int) $group->sum(fn ($r) => (int) ($r['short_work_minutes'] ?? 0)),
+                'menit_lembur' => (int) $group->sum(fn ($r) => (int) ($r['overtime_minutes'] ?? 0)),
+            ];
+        };
+
+        $summary = $buildStats($rows);
 
         $rekapByEmployee = $rows
             ->groupBy(fn ($r) => $r['employee']->id)
-            ->map(function ($group) {
-                $employee = $group->first()['employee'];
-
-                return [
-                    'employee' => $employee,
-                    'total' => $group->count(),
-                    'ok' => $group->where('compliance_ok', true)->count(),
-                    'not_ok' => $group->filter(fn ($r) => empty($r['compliance_ok']))->count(),
-                    'tidak_masuk' => $group->where('status', 'Tidak Masuk')->count(),
-                    'terlambat' => $group->where('is_late', true)->count(),
-                    'istirahat_lebih' => $group->where('is_over_break', true)->count(),
-                    'pulang_awal' => $group->where('is_early_out', true)->count(),
-                    'jam_kerja_kurang' => $group->where('is_short_work', true)->count(),
-                    'menit_terlambat' => (int) $group->sum(fn ($r) => (int) ($r['late_minutes'] ?? 0)),
-                    'menit_istirahat_lebih' => (int) $group->sum(fn ($r) => (int) ($r['over_break_minutes'] ?? 0)),
-                    'menit_pulang_awal' => (int) $group->sum(fn ($r) => (int) ($r['early_out_minutes'] ?? 0)),
-                    'menit_jam_kerja_kurang' => (int) $group->sum(fn ($r) => (int) ($r['short_work_minutes'] ?? 0)),
-                ];
+            ->map(function ($group) use ($buildStats) {
+                return array_merge(
+                    ['employee' => $group->first()['employee']],
+                    $buildStats($group),
+                );
             })
             ->sortBy(fn ($r) => mb_strtolower($r['employee']->full_name))
             ->values();
@@ -338,26 +331,13 @@ new #[Layout('layouts.app')] class extends Component
         $detailGroups = $groupDetailByEmployee
             ? $rows
                 ->groupBy(fn ($r) => $r['employee']->id)
-                ->map(function ($group) use ($attachReasons) {
+                ->map(function ($group) use ($attachReasons, $buildStats) {
                     $employee = $group->first()['employee'];
 
                     return [
                         'employee' => $employee,
                         'rows' => $attachReasons($group->sortByDesc('date')->values()),
-                        'stats' => [
-                            'total' => $group->count(),
-                            'ok' => $group->where('compliance_ok', true)->count(),
-                            'not_ok' => $group->filter(fn ($r) => empty($r['compliance_ok']))->count(),
-                            'tidak_masuk' => $group->where('status', 'Tidak Masuk')->count(),
-                            'terlambat' => $group->where('is_late', true)->count(),
-                            'istirahat_lebih' => $group->where('is_over_break', true)->count(),
-                            'pulang_awal' => $group->where('is_early_out', true)->count(),
-                            'jam_kerja_kurang' => $group->where('is_short_work', true)->count(),
-                            'menit_terlambat' => (int) $group->sum(fn ($r) => (int) ($r['late_minutes'] ?? 0)),
-                            'menit_istirahat_lebih' => (int) $group->sum(fn ($r) => (int) ($r['over_break_minutes'] ?? 0)),
-                            'menit_pulang_awal' => (int) $group->sum(fn ($r) => (int) ($r['early_out_minutes'] ?? 0)),
-                            'menit_jam_kerja_kurang' => (int) $group->sum(fn ($r) => (int) ($r['short_work_minutes'] ?? 0)),
-                        ],
+                        'stats' => $buildStats($group),
                     ];
                 })
                 ->sortBy(fn ($g) => mb_strtolower($g['employee']->full_name))
@@ -484,80 +464,7 @@ new #[Layout('layouts.app')] class extends Component
             </div>
 
             @if ($mainTab === 'rekap')
-                @php
-                    $fmtDur = function (int $minutes): string {
-                        $total = abs($minutes);
-                        if ($total <= 0) {
-                            return '';
-                        }
-                        $hours = intdiv($total, 60);
-                        $mins = $total % 60;
-                        if ($hours > 25) {
-                            $days = intdiv($hours, 24);
-                            $hours = $hours % 24;
-
-                            return "{$days}d {$hours}h {$mins}m";
-                        }
-
-                        return "{$hours}h {$mins}m";
-                    };
-                @endphp
-                <div class="bg-white border border-gray-200 rounded-lg shrink-0 overflow-hidden">
-                    <div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 divide-x divide-y xl:divide-y-0 divide-gray-100">
-                        <div class="px-3 py-2 min-w-0">
-                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Total</p>
-                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-gray-900">{{ $summary['total'] }}</p>
-                        </div>
-                        <div class="px-3 py-2 min-w-0">
-                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">OK</p>
-                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-green-700">{{ $summary['ok'] }}</p>
-                        </div>
-                        <div class="px-3 py-2 min-w-0">
-                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Not OK</p>
-                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">{{ $summary['not_ok'] }}</p>
-                        </div>
-                        <div class="px-3 py-2 min-w-0">
-                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Tidak masuk</p>
-                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-gray-800">{{ $summary['tidak_masuk'] }}</p>
-                        </div>
-                        <div class="px-3 py-2 min-w-0">
-                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Terlambat</p>
-                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">
-                                {{ $summary['terlambat'] }}
-                                @if ($summary['menit_terlambat'] > 0)
-                                    <span class="font-normal text-gray-500">· {{ $fmtDur($summary['menit_terlambat']) }}</span>
-                                @endif
-                            </p>
-                        </div>
-                        <div class="px-3 py-2 min-w-0">
-                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Istirahat+</p>
-                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-amber-800">
-                                {{ $summary['istirahat_lebih'] }}
-                                @if ($summary['menit_istirahat_lebih'] > 0)
-                                    <span class="font-normal text-gray-500">· {{ $fmtDur($summary['menit_istirahat_lebih']) }}</span>
-                                @endif
-                            </p>
-                        </div>
-                        <div class="px-3 py-2 min-w-0">
-                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Pulang awal</p>
-                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">
-                                {{ $summary['pulang_awal'] }}
-                                @if ($summary['menit_pulang_awal'] > 0)
-                                    <span class="font-normal text-gray-500">· {{ $fmtDur($summary['menit_pulang_awal']) }}</span>
-                                @endif
-                            </p>
-                        </div>
-                        <div class="px-3 py-2 min-w-0">
-                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Jam kurang</p>
-                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">
-                                {{ $summary['jam_kerja_kurang'] }}
-                                @if ($summary['menit_jam_kerja_kurang'] > 0)
-                                    <span class="font-normal text-gray-500">· {{ $fmtDur($summary['menit_jam_kerja_kurang']) }}</span>
-                                @endif
-                            </p>
-                        </div>
-                    </div>
-                </div>
+                <x-attendance-stats-strip :stats="$summary" class="shrink-0" />
 
                 <div class="bg-white shadow-sm rounded-lg overflow-hidden flex-1 flex flex-col min-h-0">
                     <div class="overflow-auto flex-1">
@@ -573,6 +480,7 @@ new #[Layout('layouts.app')] class extends Component
                                     <th class="px-4 py-3 text-right">Istirahat+</th>
                                     <th class="px-4 py-3 text-right">Pulang awal</th>
                                     <th class="px-4 py-3 text-right">Jam kurang</th>
+                                    <th class="px-4 py-3 text-right">Jam lembur</th>
                                     <th class="px-4 py-3 text-right">Total menit</th>
                                 </tr>
                             </thead>
@@ -606,13 +514,17 @@ new #[Layout('layouts.app')] class extends Component
                                             {{ $rekap['jam_kerja_kurang'] }}
                                             <x-minutes-hm :minutes="$rekap['menit_jam_kerja_kurang']" class="text-xs text-gray-400" />
                                         </td>
+                                        <td class="px-4 py-3 whitespace-nowrap text-right text-emerald-700">
+                                            {{ $rekap['lembur'] }}
+                                            <x-minutes-hm :minutes="$rekap['menit_lembur']" class="text-xs text-gray-400" />
+                                        </td>
                                         <td class="px-4 py-3 whitespace-nowrap text-right font-medium text-gray-900">
                                             <x-minutes-hm :minutes="$totalMenit" />
                                         </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="10" class="px-6 py-6 text-center text-gray-500">
+                                        <td colspan="11" class="px-6 py-6 text-center text-gray-500">
                                             Tidak ada data untuk direkap pada filter ini.
                                         </td>
                                     </tr>
@@ -639,71 +551,18 @@ new #[Layout('layouts.app')] class extends Component
                                 <div wire:key="accordion-{{ $gid }}" class="bg-white shadow-sm rounded-lg overflow-hidden border border-gray-100">
                                     <button
                                         type="button"
-                                        class="w-full px-4 py-3 text-left hover:bg-gray-50 transition"
+                                        class="w-full text-left hover:bg-gray-50 transition"
                                         @click="open['{{ $gid }}'] = !open['{{ $gid }}']"
                                         :aria-expanded="!!open['{{ $gid }}']"
                                     >
-                                        @php
-                                            $s = $group['stats'];
-                                            $fmtHm = function (int $minutes): string {
-                                                $total = abs($minutes);
-                                                $hours = intdiv($total, 60);
-                                                $remain = $total % 60;
-                                                if ($hours > 25) {
-                                                    $days = intdiv($hours, 24);
-                                                    $hours = $hours % 24;
-
-                                                    return "{$days}d {$hours}h {$remain}m";
-                                                }
-
-                                                return "{$hours}h {$remain}m";
-                                            };
-                                        @endphp
-                                        <div class="flex items-center gap-3 min-w-0">
+                                        <div class="flex items-center gap-2 px-4 pt-3 pb-2 min-w-0">
                                             <svg class="h-4 w-4 text-gray-500 shrink-0 transition-transform" :class="open['{{ $gid }}'] ? 'rotate-90' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                                 <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
                                             </svg>
                                             <span class="text-sm font-semibold text-gray-900 truncate">{{ $group['employee']->full_name }}</span>
-                                            <span class="text-xs text-gray-400 shrink-0">{{ $s['total'] }} hari</span>
-                                            <span class="hidden sm:inline text-gray-300 shrink-0">·</span>
-                                            <div class="hidden sm:flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0 text-[11px] tabular-nums">
-                                                <span class="text-green-700">OK <span class="font-semibold">{{ $s['ok'] }}</span></span>
-                                                <span class="{{ $s['not_ok'] > 0 ? 'text-red-700' : 'text-gray-500' }}">Not OK <span class="font-semibold">{{ $s['not_ok'] }}</span></span>
-                                                @if ($s['tidak_masuk'] > 0)
-                                                    <span class="text-red-700">Absen <span class="font-semibold">{{ $s['tidak_masuk'] }}</span></span>
-                                                @endif
-                                                <span class="{{ $s['terlambat'] > 0 ? 'text-red-700' : 'text-gray-500' }}">
-                                                    Telat <span class="font-semibold">{{ $s['terlambat'] }}</span>@if ($s['menit_terlambat'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_terlambat']) }})</span>@endif
-                                                </span>
-                                                <span class="{{ $s['istirahat_lebih'] > 0 ? 'text-amber-800' : 'text-gray-500' }}">
-                                                    Istirahat+ <span class="font-semibold">{{ $s['istirahat_lebih'] }}</span>@if ($s['menit_istirahat_lebih'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_istirahat_lebih']) }})</span>@endif
-                                                </span>
-                                                <span class="{{ $s['pulang_awal'] > 0 ? 'text-red-700' : 'text-gray-500' }}">
-                                                    Pulang awal <span class="font-semibold">{{ $s['pulang_awal'] }}</span>@if ($s['menit_pulang_awal'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_pulang_awal']) }})</span>@endif
-                                                </span>
-                                                <span class="{{ $s['jam_kerja_kurang'] > 0 ? 'text-red-700' : 'text-gray-500' }}">
-                                                    Jam kurang <span class="font-semibold">{{ $s['jam_kerja_kurang'] }}</span>@if ($s['menit_jam_kerja_kurang'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_jam_kerja_kurang']) }})</span>@endif
-                                                </span>
-                                            </div>
                                         </div>
-                                        <div class="mt-1.5 ml-7 flex flex-wrap items-center gap-x-2 gap-y-0.5 sm:hidden text-[11px] tabular-nums">
-                                            <span class="text-green-700">OK <span class="font-semibold">{{ $s['ok'] }}</span></span>
-                                            <span class="{{ $s['not_ok'] > 0 ? 'text-red-700' : 'text-gray-500' }}">Not OK <span class="font-semibold">{{ $s['not_ok'] }}</span></span>
-                                            @if ($s['tidak_masuk'] > 0)
-                                                <span class="text-red-700">Absen <span class="font-semibold">{{ $s['tidak_masuk'] }}</span></span>
-                                            @endif
-                                            <span class="{{ $s['terlambat'] > 0 ? 'text-red-700' : 'text-gray-500' }}">
-                                                Telat <span class="font-semibold">{{ $s['terlambat'] }}</span>@if ($s['menit_terlambat'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_terlambat']) }})</span>@endif
-                                            </span>
-                                            <span class="{{ $s['istirahat_lebih'] > 0 ? 'text-amber-800' : 'text-gray-500' }}">
-                                                Istirahat+ <span class="font-semibold">{{ $s['istirahat_lebih'] }}</span>@if ($s['menit_istirahat_lebih'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_istirahat_lebih']) }})</span>@endif
-                                            </span>
-                                            <span class="{{ $s['pulang_awal'] > 0 ? 'text-red-700' : 'text-gray-500' }}">
-                                                Pulang awal <span class="font-semibold">{{ $s['pulang_awal'] }}</span>@if ($s['menit_pulang_awal'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_pulang_awal']) }})</span>@endif
-                                            </span>
-                                            <span class="{{ $s['jam_kerja_kurang'] > 0 ? 'text-red-700' : 'text-gray-500' }}">
-                                                Jam kurang <span class="font-semibold">{{ $s['jam_kerja_kurang'] }}</span>@if ($s['menit_jam_kerja_kurang'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_jam_kerja_kurang']) }})</span>@endif
-                                            </span>
+                                        <div class="mx-3 mb-3">
+                                            <x-attendance-stats-strip :stats="$group['stats']" inset />
                                         </div>
                                     </button>
 

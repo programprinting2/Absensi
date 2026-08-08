@@ -329,26 +329,28 @@ new #[Layout('layouts.app')] class extends Component
 
     <div class="h-[calc(100vh-8rem)] flex flex-col">
         <div class="flex-1 flex flex-col min-h-0 px-4 sm:px-6 lg:px-8 py-4 space-y-4 overflow-y-auto">
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 shrink-0">
-                <div class="bg-white shadow-sm rounded-lg px-4 py-3">
-                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Masuk</p>
-                    <p class="mt-1 text-xl font-semibold text-green-700">{{ $summary['masuk'] }}</p>
-                </div>
-                <div class="bg-white shadow-sm rounded-lg px-4 py-3">
-                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Tidak Masuk</p>
-                    <p class="mt-1 text-xl font-semibold text-gray-500">{{ $summary['off'] }}</p>
-                </div>
-                <div class="bg-white shadow-sm rounded-lg px-4 py-3">
-                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Istirahat</p>
-                    <p class="mt-1 text-xl font-semibold text-yellow-700">{{ $summary['istirahat'] }}</p>
-                </div>
-                <div class="bg-white shadow-sm rounded-lg px-4 py-3">
-                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Terlambat</p>
-                    <p class="mt-1 text-xl font-semibold text-red-700">{{ $summary['terlambat'] }}</p>
-                </div>
-                <div class="bg-white shadow-sm rounded-lg px-4 py-3">
-                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Over Break</p>
-                    <p class="mt-1 text-xl font-semibold text-red-700">{{ $summary['over_break'] }}</p>
+            <div class="bg-white border border-gray-200 rounded-lg shrink-0 overflow-hidden">
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 divide-x divide-y lg:divide-y-0 divide-gray-100">
+                    <div class="px-3 py-2 min-w-0">
+                        <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Masuk</p>
+                        <p class="mt-0.5 text-sm font-semibold tabular-nums text-green-700">{{ $summary['masuk'] }}</p>
+                    </div>
+                    <div class="px-3 py-2 min-w-0">
+                        <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Tidak masuk</p>
+                        <p class="mt-0.5 text-sm font-semibold tabular-nums text-gray-800">{{ $summary['off'] }}</p>
+                    </div>
+                    <div class="px-3 py-2 min-w-0">
+                        <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Istirahat</p>
+                        <p class="mt-0.5 text-sm font-semibold tabular-nums text-amber-800">{{ $summary['istirahat'] }}</p>
+                    </div>
+                    <div class="px-3 py-2 min-w-0">
+                        <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Terlambat</p>
+                        <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">{{ $summary['terlambat'] }}</p>
+                    </div>
+                    <div class="px-3 py-2 min-w-0">
+                        <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Over break</p>
+                        <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">{{ $summary['over_break'] }}</p>
+                    </div>
                 </div>
             </div>
 

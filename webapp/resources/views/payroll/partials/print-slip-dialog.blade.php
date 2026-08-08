@@ -146,10 +146,10 @@
         },
         async doPrint() {
             if (this.requireSelected && this.selectedIds().length === 0) {
-                alert('Centang karyawan yang mau dicetak terlebih dahulu.');
+                await window.appAlert('Centang karyawan yang mau dicetak terlebih dahulu.');
                 return;
             }
-            if (this.overflowRisk && !confirm('Skala font ' + this.fontScale + '% pada kertas pendek berisiko jadi 2 halaman. Tetap cetak?')) {
+            if (this.overflowRisk && ! await window.appConfirm('Skala font ' + this.fontScale + '% pada kertas pendek berisiko jadi 2 halaman. Tetap cetak?', { confirmLabel: 'Tetap cetak' })) {
                 return;
             }
             this.saving = true;
@@ -194,7 +194,7 @@
                 }
             } catch (err) {
                 this.saving = false;
-                alert((err && err.message) ? err.message : 'Gagal cetak. Coba lagi.');
+                await window.appAlert((err && err.message) ? err.message : 'Gagal cetak. Coba lagi.', { danger: true });
             }
         },
         handleOpen(detail) {

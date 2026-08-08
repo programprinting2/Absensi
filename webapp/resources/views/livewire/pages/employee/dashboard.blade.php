@@ -180,10 +180,12 @@ new #[Layout('layouts.app')] class extends Component
                     'istirahat_lebih' => 0,
                     'pulang_awal' => 0,
                     'jam_kerja_kurang' => 0,
+                    'lembur' => 0,
                     'menit_terlambat' => 0,
                     'menit_istirahat_lebih' => 0,
                     'menit_pulang_awal' => 0,
                     'menit_jam_kerja_kurang' => 0,
+                    'menit_lembur' => 0,
                 ],
                 'todayRow' => null,
             ];
@@ -218,21 +220,12 @@ new #[Layout('layouts.app')] class extends Component
             ->mapWithKeys(fn (AttendanceDayReason $r) => [$r->work_date->toDateString() => true])
             ->all();
 
-        $fmtHm = function (int $minutes): string {
-            $total = abs($minutes);
-            $hours = intdiv($total, 60);
-            $remain = $total % 60;
-
-            return "{$hours} : {$remain}";
-        };
-
         return [
             'employee' => $employee,
             'periodLabel' => $now->locale('id')->translatedFormat('F Y'),
             'rows' => $rows,
             'todayRow' => $todayRow,
             'reasonDates' => $reasonDates,
-            'fmtHm' => $fmtHm,
             'summary' => [
                 'total' => $rows->count(),
                 'ok' => $rows->where('compliance_ok', true)->count(),
@@ -242,10 +235,12 @@ new #[Layout('layouts.app')] class extends Component
                 'istirahat_lebih' => $rows->where('is_over_break', true)->count(),
                 'pulang_awal' => $rows->where('is_early_out', true)->count(),
                 'jam_kerja_kurang' => $rows->where('is_short_work', true)->count(),
+                'lembur' => $rows->filter(fn ($r) => (int) ($r['overtime_minutes'] ?? 0) > 0)->count(),
                 'menit_terlambat' => (int) $rows->sum(fn ($r) => (int) ($r['late_minutes'] ?? 0)),
                 'menit_istirahat_lebih' => (int) $rows->sum(fn ($r) => (int) ($r['over_break_minutes'] ?? 0)),
                 'menit_pulang_awal' => (int) $rows->sum(fn ($r) => (int) ($r['early_out_minutes'] ?? 0)),
                 'menit_jam_kerja_kurang' => (int) $rows->sum(fn ($r) => (int) ($r['short_work_minutes'] ?? 0)),
+                'menit_lembur' => (int) $rows->sum(fn ($r) => (int) ($r['overtime_minutes'] ?? 0)),
             ],
         ];
     }
@@ -316,39 +311,7 @@ new #[Layout('layouts.app')] class extends Component
                 </div>
 
                 {{-- Ringkasan bulan --}}
-                <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-3">
-                    <div class="bg-white shadow-sm rounded-lg p-4">
-                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Hari kerja</p>
-                        <p class="mt-1 text-2xl font-semibold text-gray-800">{{ $summary['total'] }}</p>
-                    </div>
-                    <div class="bg-white shadow-sm rounded-lg p-4">
-                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">OK</p>
-                        <p class="mt-1 text-2xl font-semibold text-green-700">{{ $summary['ok'] }}</p>
-                    </div>
-                    <div class="bg-white shadow-sm rounded-lg p-4">
-                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Not OK</p>
-                        <p class="mt-1 text-2xl font-semibold text-red-700">{{ $summary['not_ok'] }}</p>
-                    </div>
-                    <div class="bg-white shadow-sm rounded-lg p-4">
-                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Tidak masuk</p>
-                        <p class="mt-1 text-2xl font-semibold text-gray-600">{{ $summary['tidak_masuk'] }}</p>
-                    </div>
-                </div>
-
-                <div class="flex flex-wrap items-center gap-1.5">
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $summary['terlambat'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                        Telat {{ $summary['terlambat'] }}@if ($summary['menit_terlambat'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($summary['menit_terlambat']) }})</span>@endif
-                    </span>
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $summary['istirahat_lebih'] > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600' }}">
-                        Istirahat+ {{ $summary['istirahat_lebih'] }}@if ($summary['menit_istirahat_lebih'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($summary['menit_istirahat_lebih']) }})</span>@endif
-                    </span>
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $summary['pulang_awal'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                        Pulang awal {{ $summary['pulang_awal'] }}@if ($summary['menit_pulang_awal'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($summary['menit_pulang_awal']) }})</span>@endif
-                    </span>
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $summary['jam_kerja_kurang'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                        Jam kurang {{ $summary['jam_kerja_kurang'] }}@if ($summary['menit_jam_kerja_kurang'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($summary['menit_jam_kerja_kurang']) }})</span>@endif
-                    </span>
-                </div>
+                <x-attendance-stats-strip :stats="$summary" />
 
                 {{-- Detail harian --}}
                 <div class="bg-white shadow-sm rounded-lg overflow-hidden border border-gray-100">

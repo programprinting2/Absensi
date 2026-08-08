@@ -106,6 +106,7 @@
         </div>
 
         <x-toast-hub />
+        <x-dialog-hub />
 
         @stack('scripts')
         {{-- Config dulu, baru app.js + Livewire.start() --}}

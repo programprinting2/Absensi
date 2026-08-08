@@ -333,11 +333,11 @@ new class extends Component
                             </div>
                             <button
                                 type="button"
-                                class="flex-1 min-w-0 px-3 py-3 text-left hover:bg-gray-50 transition"
+                                class="flex-1 min-w-0 text-left hover:bg-gray-50 transition"
                                 @click="open['{{ $eid }}'] = !open['{{ $eid }}']"
                                 :aria-expanded="!!open['{{ $eid }}']"
                             >
-                                <div class="flex items-center justify-between gap-3">
+                                <div class="flex items-center justify-between gap-3 px-3 pt-3 pb-2">
                                     <div class="flex items-center gap-2 min-w-0">
                                         <svg class="h-4 w-4 text-gray-500 shrink-0 transition-transform" :class="open['{{ $eid }}'] ? 'rotate-90' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                             <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
@@ -353,28 +353,40 @@ new class extends Component
                                         Rp {{ number_format($entry->net_salary, 0, ',', '.') }}
                                     </span>
                                 </div>
-                                <div class="mt-1.5 ml-6 flex flex-wrap items-center gap-1.5">
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
-                                        Pokok {{ number_format($entry->base_salary, 0, ',', '.') }}
-                                    </span>
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                        Tunjangan +{{ number_format($entry->total_allowances, 0, ',', '.') }}
-                                    </span>
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                        Lembur +{{ number_format($entry->overtime_amount, 0, ',', '.') }}
-                                    </span>
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $entry->total_deductions > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                                        Potongan -{{ number_format($entry->total_deductions, 0, ',', '.') }}
-                                    </span>
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $totalDenda > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                                        Denda -{{ number_format($totalDenda, 0, ',', '.') }}
-                                    </span>
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $entry->late_count > 0 ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-600' }}">
-                                        Telat {{ $entry->late_count }}
-                                    </span>
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $entry->absent_days > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                                        Absen {{ $entry->absent_days }}
-                                    </span>
+                                <div class="mx-3 mb-3 border border-gray-100 rounded-lg overflow-hidden bg-gray-50/60">
+                                    <div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-7 divide-x divide-y xl:divide-y-0 divide-gray-100">
+                                        <div class="px-3 py-2 min-w-0">
+                                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Pokok</p>
+                                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-gray-900">{{ number_format($entry->base_salary, 0, ',', '.') }}</p>
+                                        </div>
+                                        <div class="px-3 py-2 min-w-0">
+                                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Tunjangan</p>
+                                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-green-700">+{{ number_format($entry->total_allowances, 0, ',', '.') }}</p>
+                                        </div>
+                                        <div class="px-3 py-2 min-w-0">
+                                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Lembur</p>
+                                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-emerald-700">
+                                                +{{ number_format($entry->overtime_amount, 0, ',', '.') }}
+                                                <span class="font-normal text-gray-500">· {{ number_format((float) $entry->overtime_hours, 1) }} jam</span>
+                                            </p>
+                                        </div>
+                                        <div class="px-3 py-2 min-w-0">
+                                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Potongan</p>
+                                            <p class="mt-0.5 text-sm font-semibold tabular-nums {{ $entry->total_deductions > 0 ? 'text-red-700' : 'text-gray-800' }}">-{{ number_format($entry->total_deductions, 0, ',', '.') }}</p>
+                                        </div>
+                                        <div class="px-3 py-2 min-w-0">
+                                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Denda</p>
+                                            <p class="mt-0.5 text-sm font-semibold tabular-nums {{ $totalDenda > 0 ? 'text-red-700' : 'text-gray-800' }}">-{{ number_format($totalDenda, 0, ',', '.') }}</p>
+                                        </div>
+                                        <div class="px-3 py-2 min-w-0">
+                                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Telat</p>
+                                            <p class="mt-0.5 text-sm font-semibold tabular-nums {{ $entry->late_count > 0 ? 'text-amber-800' : 'text-gray-800' }}">{{ $entry->late_count }}</p>
+                                        </div>
+                                        <div class="px-3 py-2 min-w-0">
+                                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Absen</p>
+                                            <p class="mt-0.5 text-sm font-semibold tabular-nums {{ $entry->absent_days > 0 ? 'text-red-700' : 'text-gray-800' }}">{{ $entry->absent_days }}</p>
+                                        </div>
+                                    </div>
                                 </div>
                             </button>
                         </div>
@@ -409,28 +421,34 @@ new class extends Component
                                 </div>
 
                                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                    <div class="bg-white rounded-lg border border-gray-100 p-4">
-                                        <h4 class="text-sm font-semibold text-gray-900 mb-3">Ringkasan Absensi</h4>
-                                        <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                            <div class="text-center p-2.5 rounded-lg bg-yellow-50">
-                                                <div class="text-xl font-bold text-yellow-700">{{ $entry->late_count }}</div>
-                                                <div class="text-[11px] text-yellow-600">Terlambat</div>
+                                    <div class="bg-white rounded-lg border border-gray-100 overflow-hidden">
+                                        <div class="px-4 py-3 border-b border-gray-100">
+                                            <h4 class="text-sm font-semibold text-gray-800">Ringkasan Absensi</h4>
+                                        </div>
+                                        <div class="grid grid-cols-2 sm:grid-cols-3 divide-x divide-y divide-gray-100">
+                                            <div class="px-3 py-2 min-w-0">
+                                                <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Terlambat</p>
+                                                <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">{{ $entry->late_count }}</p>
                                             </div>
-                                            <div class="text-center p-2.5 rounded-lg bg-red-50">
-                                                <div class="text-xl font-bold text-red-700">{{ $entry->absent_days }}</div>
-                                                <div class="text-[11px] text-red-600">Tidak Masuk</div>
+                                            <div class="px-3 py-2 min-w-0">
+                                                <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Tidak masuk</p>
+                                                <p class="mt-0.5 text-sm font-semibold tabular-nums text-gray-800">{{ $entry->absent_days }}</p>
                                             </div>
-                                            <div class="text-center p-2.5 rounded-lg bg-orange-50">
-                                                <div class="text-xl font-bold text-orange-700">{{ $entry->early_out_count }}</div>
-                                                <div class="text-[11px] text-orange-600">Pulang Cepat</div>
+                                            <div class="px-3 py-2 min-w-0">
+                                                <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Pulang cepat</p>
+                                                <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">{{ $entry->early_out_count }}</p>
                                             </div>
-                                            <div class="text-center p-2.5 rounded-lg bg-rose-50">
-                                                <div class="text-xl font-bold text-rose-700">{{ $entry->over_break_count ?? 0 }}</div>
-                                                <div class="text-[11px] text-rose-600">Over Break</div>
+                                            <div class="px-3 py-2 min-w-0">
+                                                <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Over break</p>
+                                                <p class="mt-0.5 text-sm font-semibold tabular-nums text-amber-800">{{ $entry->over_break_count ?? 0 }}</p>
                                             </div>
-                                            <div class="text-center p-2.5 rounded-lg bg-amber-50">
-                                                <div class="text-xl font-bold text-amber-700">{{ number_format((float) ($entry->short_work_hours ?? 0), 1) }}</div>
-                                                <div class="text-[11px] text-amber-600">Jam Kurang</div>
+                                            <div class="px-3 py-2 min-w-0">
+                                                <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Jam kurang</p>
+                                                <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">{{ number_format((float) ($entry->short_work_hours ?? 0), 1) }}</p>
+                                            </div>
+                                            <div class="px-3 py-2 min-w-0">
+                                                <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Jam lembur</p>
+                                                <p class="mt-0.5 text-sm font-semibold tabular-nums text-emerald-700">{{ number_format((float) ($entry->overtime_hours ?? 0), 1) }}</p>
                                             </div>
                                         </div>
                                     </div>
@@ -665,14 +683,16 @@ new class extends Component
                     </div>
                 </div>
 
-                <div class="flex flex-wrap justify-end gap-3 px-6 py-4 border-t border-gray-100 shrink-0 bg-gray-50">
-                    <button type="button" wire:click="closeEdit" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-                        Tutup
+                <div class="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-t border-gray-100 shrink-0 bg-gray-50">
+                    <button type="button" wire:click="recalculate" wire:confirm="Reset & hitung ulang dari absensi & master? Komponen manual bisa hilang." class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                        Reset
                     </button>
-                    <button type="button" wire:click="recalculate" wire:confirm="Hitung ulang dari absensi & master? Komponen manual bisa hilang." class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-                        Recalculate
-                    </button>
-                    <x-primary-button type="button" wire:click="saveAdjustment">Simpan Adjustment</x-primary-button>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <button type="button" wire:click="closeEdit" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                            Tutup
+                        </button>
+                        <x-primary-button type="button" wire:click="saveAdjustment">Simpan Adjustment</x-primary-button>
+                    </div>
                 </div>
             </div>
         </div>

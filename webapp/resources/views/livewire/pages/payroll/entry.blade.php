@@ -287,28 +287,34 @@ new #[Layout('layouts.app')] class extends Component
                 </div>
             </div>
 
-            <div class="bg-white shadow-sm rounded-lg p-6">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4">Ringkasan Absensi</h3>
-                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-                    <div class="text-center p-3 rounded-lg bg-yellow-50">
-                        <div class="text-2xl font-bold text-yellow-700">{{ $entry->late_count }}</div>
-                        <div class="text-xs text-yellow-600">Terlambat</div>
+            <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                <div class="px-4 py-3 border-b border-gray-100">
+                    <h3 class="text-sm font-semibold text-gray-800">Ringkasan Absensi</h3>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 divide-x divide-y lg:divide-y-0 divide-gray-100">
+                    <div class="px-3 py-2 min-w-0">
+                        <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Terlambat</p>
+                        <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">{{ $entry->late_count }}</p>
                     </div>
-                    <div class="text-center p-3 rounded-lg bg-red-50">
-                        <div class="text-2xl font-bold text-red-700">{{ $entry->absent_days }}</div>
-                        <div class="text-xs text-red-600">Tidak Masuk</div>
+                    <div class="px-3 py-2 min-w-0">
+                        <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Tidak masuk</p>
+                        <p class="mt-0.5 text-sm font-semibold tabular-nums text-gray-800">{{ $entry->absent_days }}</p>
                     </div>
-                    <div class="text-center p-3 rounded-lg bg-orange-50">
-                        <div class="text-2xl font-bold text-orange-700">{{ $entry->early_out_count }}</div>
-                        <div class="text-xs text-orange-600">Pulang Cepat</div>
+                    <div class="px-3 py-2 min-w-0">
+                        <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Pulang cepat</p>
+                        <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">{{ $entry->early_out_count }}</p>
                     </div>
-                    <div class="text-center p-3 rounded-lg bg-rose-50">
-                        <div class="text-2xl font-bold text-rose-700">{{ $entry->over_break_count ?? 0 }}</div>
-                        <div class="text-xs text-rose-600">Over Break</div>
+                    <div class="px-3 py-2 min-w-0">
+                        <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Over break</p>
+                        <p class="mt-0.5 text-sm font-semibold tabular-nums text-amber-800">{{ $entry->over_break_count ?? 0 }}</p>
                     </div>
-                    <div class="text-center p-3 rounded-lg bg-amber-50">
-                        <div class="text-2xl font-bold text-amber-700">{{ number_format((float) ($entry->short_work_hours ?? 0), 1) }}</div>
-                        <div class="text-xs text-amber-600">Jam Kurang</div>
+                    <div class="px-3 py-2 min-w-0">
+                        <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Jam kurang</p>
+                        <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">{{ number_format((float) ($entry->short_work_hours ?? 0), 1) }}</p>
+                    </div>
+                    <div class="px-3 py-2 min-w-0">
+                        <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Jam lembur</p>
+                        <p class="mt-0.5 text-sm font-semibold tabular-nums text-emerald-700">{{ number_format((float) ($entry->overtime_hours ?? 0), 1) }}</p>
                     </div>
                 </div>
             </div>
@@ -442,9 +448,9 @@ new #[Layout('layouts.app')] class extends Component
                             <x-input-label for="adjustNotes" value="Catatan" />
                             <textarea wire:model="adjustNotes" id="adjustNotes" rows="2" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm"></textarea>
                         </div>
-                        <div class="flex justify-end gap-3">
-                            <button type="button" wire:click="recalculate" wire:confirm="Hitung ulang dari absensi & master? Komponen manual bisa hilang." class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-                                Recalculate
+                        <div class="flex items-center justify-between gap-3">
+                            <button type="button" wire:click="recalculate" wire:confirm="Reset & hitung ulang dari absensi & master? Komponen manual bisa hilang." class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
+                                Reset
                             </button>
                             <x-primary-button type="button" wire:click="saveAdjustment">Simpan Adjustment</x-primary-button>
                         </div>

@@ -44,14 +44,6 @@ new #[Layout('layouts.app')] class extends Component
             ->get()
             ->keyBy(fn (AttendanceDayReason $r) => $r->employee_id.'|'.$r->work_date->toDateString());
 
-        $fmtHm = function (int $minutes): string {
-            $total = abs($minutes);
-            $hours = intdiv($total, 60);
-            $remain = $total % 60;
-
-            return "{$hours} : {$remain}";
-        };
-
         $formatReason = function (?AttendanceDayReason $reason): ?array {
             if (! $reason || ! $reason->hasAnyReason()) {
                 return null;
@@ -85,10 +77,12 @@ new #[Layout('layouts.app')] class extends Component
                 'istirahat_lebih' => $group->where('is_over_break', true)->count(),
                 'pulang_awal' => $group->where('is_early_out', true)->count(),
                 'jam_kerja_kurang' => $group->where('is_short_work', true)->count(),
+                'lembur' => $group->filter(fn ($r) => (int) ($r['overtime_minutes'] ?? 0) > 0)->count(),
                 'menit_terlambat' => (int) $group->sum(fn ($r) => (int) ($r['late_minutes'] ?? 0)),
                 'menit_istirahat_lebih' => (int) $group->sum(fn ($r) => (int) ($r['over_break_minutes'] ?? 0)),
                 'menit_pulang_awal' => (int) $group->sum(fn ($r) => (int) ($r['early_out_minutes'] ?? 0)),
                 'menit_jam_kerja_kurang' => (int) $group->sum(fn ($r) => (int) ($r['short_work_minutes'] ?? 0)),
+                'menit_lembur' => (int) $group->sum(fn ($r) => (int) ($r['overtime_minutes'] ?? 0)),
             ];
         };
 
@@ -119,7 +113,6 @@ new #[Layout('layouts.app')] class extends Component
             'periodLabel' => $periodLabel,
             'summary' => $summary,
             'detailGroups' => $detailGroups,
-            'fmtHm' => $fmtHm,
             'todayLabel' => $now->copy()->locale('id')->translatedFormat('l, j F Y'),
         ];
     }
@@ -135,39 +128,7 @@ new #[Layout('layouts.app')] class extends Component
 
     <div class="h-[calc(100vh-8rem)] flex flex-col" wire:poll.60s.visible>
         <div class="flex-1 flex flex-col min-h-0 px-4 sm:px-6 lg:px-8 py-4 space-y-4 overflow-y-auto">
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
-                <div class="bg-white shadow-sm rounded-lg p-4">
-                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Hari kerja</p>
-                    <p class="mt-1 text-2xl font-semibold text-gray-800">{{ $summary['total'] }}</p>
-                </div>
-                <div class="bg-white shadow-sm rounded-lg p-4">
-                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">OK</p>
-                    <p class="mt-1 text-2xl font-semibold text-green-700">{{ $summary['ok'] }}</p>
-                </div>
-                <div class="bg-white shadow-sm rounded-lg p-4">
-                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Not OK</p>
-                    <p class="mt-1 text-2xl font-semibold text-red-700">{{ $summary['not_ok'] }}</p>
-                </div>
-                <div class="bg-white shadow-sm rounded-lg p-4">
-                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Tidak masuk</p>
-                    <p class="mt-1 text-2xl font-semibold text-gray-600">{{ $summary['tidak_masuk'] }}</p>
-                </div>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-1.5 shrink-0">
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $summary['terlambat'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                    Telat {{ $summary['terlambat'] }}@if ($summary['menit_terlambat'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($summary['menit_terlambat']) }})</span>@endif
-                </span>
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $summary['istirahat_lebih'] > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600' }}">
-                    Istirahat+ {{ $summary['istirahat_lebih'] }}@if ($summary['menit_istirahat_lebih'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($summary['menit_istirahat_lebih']) }})</span>@endif
-                </span>
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $summary['pulang_awal'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                    Pulang awal {{ $summary['pulang_awal'] }}@if ($summary['menit_pulang_awal'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($summary['menit_pulang_awal']) }})</span>@endif
-                </span>
-                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $summary['jam_kerja_kurang'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                    Jam kurang {{ $summary['jam_kerja_kurang'] }}@if ($summary['menit_jam_kerja_kurang'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($summary['menit_jam_kerja_kurang']) }})</span>@endif
-                </span>
-            </div>
+            <x-attendance-stats-strip :stats="$summary" class="shrink-0" />
 
             <div class="space-y-2" x-data="{ open: {} }">
                 @forelse ($detailGroups as $group)
@@ -175,35 +136,18 @@ new #[Layout('layouts.app')] class extends Component
                     <div wire:key="my-dash-{{ $gid }}" class="bg-white shadow-sm rounded-lg overflow-hidden border border-gray-100">
                         <button
                             type="button"
-                            class="w-full px-4 py-3 text-left hover:bg-gray-50 transition"
+                            class="w-full text-left hover:bg-gray-50 transition"
                             @click="open['{{ $gid }}'] = !open['{{ $gid }}']"
                             :aria-expanded="!!open['{{ $gid }}']"
                         >
-                            <div class="flex items-center gap-3 min-w-0">
+                            <div class="flex items-center gap-2 px-4 pt-3 pb-2 min-w-0">
                                 <svg class="h-4 w-4 text-gray-500 shrink-0 transition-transform" :class="open['{{ $gid }}'] ? 'rotate-90' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                     <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
                                 </svg>
                                 <span class="text-sm font-semibold text-gray-900 truncate">{{ $group['employee']->full_name }}</span>
-                                <span class="text-xs text-gray-400 shrink-0">{{ $s['total'] }} hari</span>
                             </div>
-                            <div class="mt-1.5 ml-7 flex flex-wrap items-center gap-1.5">
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">OK {{ $s['ok'] }}</span>
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['not_ok'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">Not OK {{ $s['not_ok'] }}</span>
-                                @if ($s['tidak_masuk'] > 0)
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">Absen {{ $s['tidak_masuk'] }}</span>
-                                @endif
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['terlambat'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                                    Telat {{ $s['terlambat'] }}@if ($s['menit_terlambat'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($s['menit_terlambat']) }})</span>@endif
-                                </span>
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['istirahat_lebih'] > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600' }}">
-                                    Istirahat+ {{ $s['istirahat_lebih'] }}@if ($s['menit_istirahat_lebih'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($s['menit_istirahat_lebih']) }})</span>@endif
-                                </span>
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['pulang_awal'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                                    Pulang awal {{ $s['pulang_awal'] }}@if ($s['menit_pulang_awal'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($s['menit_pulang_awal']) }})</span>@endif
-                                </span>
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['jam_kerja_kurang'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                                    Jam kurang {{ $s['jam_kerja_kurang'] }}@if ($s['menit_jam_kerja_kurang'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($s['menit_jam_kerja_kurang']) }})</span>@endif
-                                </span>
+                            <div class="mx-3 mb-3">
+                                <x-attendance-stats-strip :stats="$s" inset />
                             </div>
                         </button>
 

@@ -236,13 +236,13 @@ new #[Layout('layouts.app')] class extends Component
                                         type="button"
                                         wire:click="finalize('{{ $period->id }}')"
                                         wire:confirm="Finalisasi periode ini? Data terkunci sampai dibuka kembali."
-                                        title="Finalisasi (kunci)"
+                                        title="Belum dikunci — klik untuk finalisasi"
                                         aria-label="Finalisasi periode"
-                                        class="inline-flex items-center justify-center w-9 h-9 rounded-md text-green-600 hover:bg-green-50 hover:text-green-800"
+                                        class="inline-flex items-center justify-center w-9 h-9 rounded-md text-amber-700 hover:bg-amber-50 hover:text-amber-900"
                                     >
-                                        {{-- lock closed --}}
+                                        {{-- Status: terbuka (Review) — klik untuk mengunci --}}
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/>
                                         </svg>
                                     </button>
                                 @else
@@ -257,13 +257,13 @@ new #[Layout('layouts.app')] class extends Component
                                         type="button"
                                         wire:click="unfinalize('{{ $period->id }}')"
                                         wire:confirm="Buka finalisasi periode ini? Status kembali ke Review. Cicilan cash bon yang sudah paid akan dikembalikan ke deducted."
-                                        title="Buka finalisasi (buka kunci)"
+                                        title="Terkunci — klik untuk buka kunci"
                                         aria-label="Buka finalisasi periode"
-                                        class="inline-flex items-center justify-center w-9 h-9 rounded-md text-amber-700 hover:bg-amber-50 hover:text-amber-900"
+                                        class="inline-flex items-center justify-center w-9 h-9 rounded-md text-green-600 hover:bg-green-50 hover:text-green-800"
                                     >
-                                        {{-- lock open / unlock --}}
+                                        {{-- Status: terkunci (Final) — klik untuk membuka --}}
                                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/>
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
                                         </svg>
                                     </button>
                                 @endif

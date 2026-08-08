@@ -35,7 +35,7 @@
                                     <a href="{{ route('payroll.allowance-types.edit', $type) }}" class="text-blue-600 hover:text-blue-800">Edit</a>
                                     <form method="POST" action="{{ route('payroll.allowance-types.destroy', $type) }}" class="inline">
                                         @csrf @method('DELETE')
-                                        <button type="submit" onclick="return confirm('Hapus tunjangan ini?')" class="text-red-600 hover:text-red-800">Hapus</button>
+                                        <button type="submit" onclick="return confirmSubmit(event, 'Hapus tunjangan ini?')" class="text-red-600 hover:text-red-800">Hapus</button>
                                     </form>
                                 </td>
                             </tr>
