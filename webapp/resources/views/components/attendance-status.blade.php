@@ -23,15 +23,25 @@
 @else
     <div class="space-y-0.5 text-xs leading-snug whitespace-nowrap">
         @foreach ($parts as $part)
-            <div @class([
-                'font-medium',
-                'text-green-700' => ! empty($part['ok']),
-                'text-red-700' => empty($part['ok']),
-            ])>
-                {{ $part['label'] }} = {{ ! empty($part['ok']) ? 'OK' : 'Not OK' }}@if (filled($part['display'] ?? null))
-                    ({{ ! empty($part['negative']) ? '- ' : '' }}{{ $part['display'] }})
-                @endif
-            </div>
+            @if (! empty($part['metric']) && filled($part['display'] ?? null))
+                <div @class([
+                    'font-medium',
+                    'text-green-700' => ! empty($part['ok']),
+                    'text-red-700' => empty($part['ok']),
+                ])>
+                    {{ $part['label'] }} = {{ $part['display'] }}
+                </div>
+            @else
+                <div @class([
+                    'font-medium',
+                    'text-green-700' => ! empty($part['ok']),
+                    'text-red-700' => empty($part['ok']),
+                ])>
+                    {{ $part['label'] }} = {{ ! empty($part['ok']) ? 'OK' : 'Not OK' }}@if (filled($part['display'] ?? null))
+                        ({{ ! empty($part['negative']) ? '- ' : '' }}{{ $part['display'] }})
+                    @endif
+                </div>
+            @endif
         @endforeach
     </div>
 @endif

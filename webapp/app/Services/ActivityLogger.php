@@ -10,19 +10,34 @@ use Throwable;
 
 class ActivityLogger
 {
-    public static function normal(string $description, ?string $action = null, array $context = []): void
-    {
-        self::log(ActivityLog::LEVEL_NORMAL, $description, $action, $context);
+    public static function normal(
+        string $description,
+        ?string $action = null,
+        array $context = [],
+        ?Request $request = null,
+        ?User $user = null,
+    ): void {
+        self::log(ActivityLog::LEVEL_NORMAL, $description, $action, $context, $request, $user);
     }
 
-    public static function medium(string $description, ?string $action = null, array $context = []): void
-    {
-        self::log(ActivityLog::LEVEL_MEDIUM, $description, $action, $context);
+    public static function medium(
+        string $description,
+        ?string $action = null,
+        array $context = [],
+        ?Request $request = null,
+        ?User $user = null,
+    ): void {
+        self::log(ActivityLog::LEVEL_MEDIUM, $description, $action, $context, $request, $user);
     }
 
-    public static function warning(string $description, ?string $action = null, array $context = []): void
-    {
-        self::log(ActivityLog::LEVEL_WARNING, $description, $action, $context);
+    public static function warning(
+        string $description,
+        ?string $action = null,
+        array $context = [],
+        ?Request $request = null,
+        ?User $user = null,
+    ): void {
+        self::log(ActivityLog::LEVEL_WARNING, $description, $action, $context, $request, $user);
     }
 
     public static function log(
