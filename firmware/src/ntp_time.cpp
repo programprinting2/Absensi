@@ -53,10 +53,17 @@ void trySync() {
 
     struct tm timeinfo;
     if (getLocalTime(&timeinfo, 5000)) {
-        lastSyncEpoch = mktime(&timeinfo);
-        lastSyncMillis = millis();
-        syncedOnce = true;
-        persistSync(lastSyncEpoch);
+        // Pakai time() — epoch UTC sejati dari NTP. Jangan mktime() dari
+        // getLocalTime(): struct tm itu wall-clock WIB, mktime() salah
+        // interpretasi → event_time +7 jam saat ditampilkan di Laravel.
+        time_t epoch = 0;
+        time(&epoch);
+        if (epoch > 0) {
+            lastSyncEpoch = epoch;
+            lastSyncMillis = millis();
+            syncedOnce = true;
+            persistSync(lastSyncEpoch);
+        }
     }
 }
 

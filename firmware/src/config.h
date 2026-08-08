@@ -11,10 +11,19 @@
 #define WIFI_AP_PASSWORD "123456789" // min. 8 karakter, dipakai buat proteksi AP setup
 #define WIFI_PORTAL_TIMEOUT_SEC 180
 
-#define SUPABASE_URL "https://kjpkphjmulnxsyyahxet.supabase.co"
-#define SUPABASE_ANON_KEY "sb_publishable_KSO_D-4nAnuncrkYtMMhBA_iIfu-Spb"
-
+// Default server API — dipakai saat first boot (belum pernah setup portal).
+// Setelah setup lewat WiFiManager, nilai tersimpan di NVS dan bisa diganti
+// tanpa reflash (Supabase cloud atau PostgREST lokal).
+// Default mode lokal — Laravel (satu URL untuk data + heartbeat). Ganti lewat WiFi Manager tanpa reflash.
+#define SUPABASE_URL "http://192.168.100.249:8008"
+#define SUPABASE_ANON_KEY ""
 #define DEVICE_CODE "DEV-001"
+
+// Mode Supabase (cloud) — isi lewat WiFi Manager jika perlu:
+// URL: https://kjpkphjmulnxsyyahxet.supabase.co
+// KEY: sb_publishable_KSO_D-4nAnuncrkYtMMhBA_iIfu-Spb
+
+#define DEFAULT_DASHBOARD_URL SUPABASE_URL
 
 // Pin fingerprint ZW111 (UART2). BUKAN P16/P17 — pin itu dipakai TFT
 // (jalur tetap di expansion board), fingerprint dipindah ke sini karena

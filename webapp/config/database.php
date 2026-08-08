@@ -97,6 +97,9 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // Wajib UTC: ESP32 kirim event_time ISO UTC (…Z). Tanpa ini Postgres
+            // (sering Asia/Bangkok) menganggap naive timestamp sebagai waktu lokal.
+            'timezone' => env('DB_TIMEZONE', 'UTC'),
         ],
 
         'sqlsrv' => [

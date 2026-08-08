@@ -1,7 +1,8 @@
 #include "supabase_client.h"
-#include "config.h"
+#include "server_config.h"
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
+#include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 
 namespace supabase_client {
@@ -11,9 +12,13 @@ namespace {
 const unsigned long HTTP_TIMEOUT_MS = 8000;
 
 void applyCommonHeaders(HTTPClient &http, bool preferReturn = false) {
+    const String &apiKey = server_config::apiKey();
+
     http.setTimeout(HTTP_TIMEOUT_MS);
-    http.addHeader("apikey", SUPABASE_ANON_KEY);
-    http.addHeader("Authorization", String("Bearer ") + SUPABASE_ANON_KEY);
+    if (apiKey.length() > 0) {
+        http.addHeader("apikey", apiKey);
+        http.addHeader("Authorization", String("Bearer ") + apiKey);
+    }
     http.addHeader("Content-Type", "application/json");
     if (preferReturn) {
         http.addHeader("Prefer", "return=minimal");
@@ -21,11 +26,14 @@ void applyCommonHeaders(HTTPClient &http, bool preferReturn = false) {
 }
 
 String restUrl(const String &path) {
-    return String(SUPABASE_URL) + "/rest/v1/" + path;
+    if (server_config::useRestApi()) {
+        return server_config::serverUrl() + "/rest/v1/" + path;
+    }
+    return server_config::serverUrl() + "/api/rest/v1/" + path;
 }
 
 void logResult(const char *label, const String &url, int code) {
-    Serial.print(F("[supabase] "));
+    Serial.print(F("[api] "));
     Serial.print(label);
     Serial.print(F(" -> code="));
     Serial.print(code);
@@ -38,6 +46,15 @@ void logResult(const char *label, const String &url, int code) {
     Serial.println(url);
 }
 
+bool beginHttp(HTTPClient &http, WiFiClient &plainClient, WiFiClientSecure &secureClient,
+               const String &url) {
+    if (server_config::useTls()) {
+        secureClient.setInsecure(); // TODO: pin root CA untuk produksi
+        return http.begin(secureClient, url);
+    }
+    return http.begin(plainClient, url);
+}
+
 } // namespace
 
 InsertResult insertAttendanceLog(const String &deviceId, const String &employeeId,
@@ -48,12 +65,13 @@ InsertResult insertAttendanceLog(const String &deviceId, const String &employeeI
         *httpCodeOut = -1;
     }
 
-    WiFiClientSecure client;
-    client.setInsecure(); // TODO: pin root CA untuk produksi
-
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     HTTPClient http;
     String url = restUrl("attendance_logs");
-    http.begin(client, url);
+    if (!beginHttp(http, plainClient, secureClient, url)) {
+        return InsertResult::Failed;
+    }
     applyCommonHeaders(http, true);
 
     JsonDocument doc;
@@ -78,9 +96,9 @@ InsertResult insertAttendanceLog(const String &deviceId, const String &employeeI
     }
     logResult("insertAttendanceLog", url, code);
     if (code < 0 || code >= 400) {
-        Serial.print(F("[supabase] request: "));
+        Serial.print(F("[api] request: "));
         Serial.println(body);
-        Serial.print(F("[supabase] response body: "));
+        Serial.print(F("[api] response body: "));
         Serial.println(http.getString());
     }
     http.end();
@@ -95,12 +113,13 @@ InsertResult insertAttendanceLog(const String &deviceId, const String &employeeI
 }
 
 bool fetchActiveEmployees(String &outJson) {
-    WiFiClientSecure client;
-    client.setInsecure();
-
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     HTTPClient http;
     String url = restUrl("employees?is_active=eq.true&select=id,employee_code,full_name,pin_salt,pin_hash");
-    http.begin(client, url);
+    if (!beginHttp(http, plainClient, secureClient, url)) {
+        return false;
+    }
     applyCommonHeaders(http);
 
     int code = http.GET();
@@ -115,12 +134,13 @@ bool fetchActiveEmployees(String &outJson) {
 }
 
 bool fetchFingerprintTemplates(const String &deviceId, String &outJson) {
-    WiFiClientSecure client;
-    client.setInsecure();
-
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     HTTPClient http;
     String url = restUrl("fingerprint_templates?device_id=eq." + deviceId + "&select=employee_id,fingerprint_slot_id");
-    http.begin(client, url);
+    if (!beginHttp(http, plainClient, secureClient, url)) {
+        return false;
+    }
     applyCommonHeaders(http);
 
     int code = http.GET();
@@ -136,12 +156,13 @@ bool fetchFingerprintTemplates(const String &deviceId, String &outJson) {
 
 bool fetchDeviceSettings(const String &deviceId, String &outJson) {
     auto tryGet = [&](const String &select) -> bool {
-        WiFiClientSecure client;
-        client.setInsecure();
-
+        WiFiClient plainClient;
+        WiFiClientSecure secureClient;
         HTTPClient http;
         String url = restUrl("devices?id=eq." + deviceId + "&select=" + select);
-        http.begin(client, url);
+        if (!beginHttp(http, plainClient, secureClient, url)) {
+            return false;
+        }
         applyCommonHeaders(http);
 
         int code = http.GET();
@@ -163,12 +184,13 @@ bool fetchDeviceSettings(const String &deviceId, String &outJson) {
 }
 
 bool fetchActiveWorkSchedule(String &outJson) {
-    WiFiClientSecure client;
-    client.setInsecure();
-
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     HTTPClient http;
     String url = restUrl("work_schedules?is_active=eq.true&select=clock_in_time,late_after_time,clock_out_time,break_duration_minutes");
-    http.begin(client, url);
+    if (!beginHttp(http, plainClient, secureClient, url)) {
+        return false;
+    }
     applyCommonHeaders(http);
 
     int code = http.GET();
@@ -183,12 +205,13 @@ bool fetchActiveWorkSchedule(String &outJson) {
 }
 
 bool fetchPendingCommands(const String &deviceId, String &outJson) {
-    WiFiClientSecure client;
-    client.setInsecure();
-
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     HTTPClient http;
     String url = restUrl("device_commands?device_id=eq." + deviceId + "&status=eq.pending&select=*");
-    http.begin(client, url);
+    if (!beginHttp(http, plainClient, secureClient, url)) {
+        return false;
+    }
     applyCommonHeaders(http);
 
     int code = http.GET();
@@ -203,12 +226,13 @@ bool fetchPendingCommands(const String &deviceId, String &outJson) {
 }
 
 bool updateCommandStatus(const String &commandId, const String &status, const String &resultJson) {
-    WiFiClientSecure client;
-    client.setInsecure();
-
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     HTTPClient http;
     String url = restUrl("device_commands?id=eq." + commandId);
-    http.begin(client, url);
+    if (!beginHttp(http, plainClient, secureClient, url)) {
+        return false;
+    }
     applyCommonHeaders(http, true);
     http.addHeader("X-HTTP-Method-Override", "PATCH");
 
@@ -232,12 +256,13 @@ bool updateCommandStatus(const String &commandId, const String &status, const St
 }
 
 bool insertFingerprintTemplate(const String &employeeId, const String &deviceId, int slotId) {
-    WiFiClientSecure client;
-    client.setInsecure();
-
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     HTTPClient http;
     String url = restUrl("fingerprint_templates");
-    http.begin(client, url);
+    if (!beginHttp(http, plainClient, secureClient, url)) {
+        return false;
+    }
     applyCommonHeaders(http, true);
 
     JsonDocument doc;
@@ -251,7 +276,7 @@ bool insertFingerprintTemplate(const String &employeeId, const String &deviceId,
     int code = http.POST(body);
     logResult("insertFingerprintTemplate", url, code);
     if (code < 0 || code >= 400) {
-        Serial.print(F("[supabase] response body: "));
+        Serial.print(F("[api] response body: "));
         Serial.println(http.getString());
     }
     http.end();
@@ -260,12 +285,13 @@ bool insertFingerprintTemplate(const String &employeeId, const String &deviceId,
 }
 
 bool getDeviceIdByCode(const String &deviceCode, String &outDeviceId) {
-    WiFiClientSecure client;
-    client.setInsecure();
-
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     HTTPClient http;
     String url = restUrl("devices?device_code=eq." + deviceCode + "&select=id");
-    http.begin(client, url);
+    if (!beginHttp(http, plainClient, secureClient, url)) {
+        return false;
+    }
     applyCommonHeaders(http);
 
     int code = http.GET();
@@ -280,12 +306,12 @@ bool getDeviceIdByCode(const String &deviceCode, String &outDeviceId) {
 
     JsonDocument doc;
     if (deserializeJson(doc, payload) != DeserializationError::Ok) {
-        Serial.println(F("[supabase] getDeviceIdByCode: gagal parse JSON"));
+        Serial.println(F("[api] getDeviceIdByCode: gagal parse JSON"));
         return false;
     }
     JsonArray arr = doc.as<JsonArray>();
     if (arr.size() == 0) {
-        Serial.println(F("[supabase] getDeviceIdByCode: device_code tidak ditemukan"));
+        Serial.println(F("[api] getDeviceIdByCode: device_code tidak ditemukan"));
         return false;
     }
     outDeviceId = arr[0]["id"].as<String>();
@@ -293,12 +319,13 @@ bool getDeviceIdByCode(const String &deviceCode, String &outDeviceId) {
 }
 
 bool updateDeviceStatus(const String &deviceId, int fingerprintCapacity) {
-    WiFiClientSecure client;
-    client.setInsecure();
-
+    WiFiClient plainClient;
+    WiFiClientSecure secureClient;
     HTTPClient http;
     String url = restUrl("devices?id=eq." + deviceId);
-    http.begin(client, url);
+    if (!beginHttp(http, plainClient, secureClient, url)) {
+        return false;
+    }
     applyCommonHeaders(http, true);
     http.addHeader("X-HTTP-Method-Override", "PATCH");
 

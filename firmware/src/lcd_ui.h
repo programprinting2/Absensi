@@ -28,6 +28,7 @@ void invalidateInput();
 void showBoot();
 void showWifiConnecting();
 void showWifiPortal(const String &apName, const String &apPassword);
+void showLanConfigPortal(const String &ip);
 void showWifiInfo(bool connected, const String &ssid, const String &ip);
 
 void showIdle(bool wifiOk, bool sensorOk, bool serverOk,

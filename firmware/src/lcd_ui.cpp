@@ -309,6 +309,27 @@ void showWifiPortal(const String &apName, const String &apPassword) {
     tft.print("* = batal");
 }
 
+void showLanConfigPortal(const String &ip) {
+    invalidateIdle();
+    invalidateInput();
+    clearBlack();
+    tft.setTextColor(TFT_YELLOW, TFT_BLACK);
+    tft.setTextSize(2);
+    tft.setCursor(4, 4);
+    tft.print("Setup");
+    tft.setTextSize(1);
+    tft.setTextColor(TFT_WHITE, TFT_BLACK);
+    tft.setCursor(4, 28);
+    tft.print("Buka di browser PC:");
+    tft.setTextColor(TFT_CYAN, TFT_BLACK);
+    tft.setCursor(4, 42);
+    tft.print("http://");
+    tft.print(ip);
+    tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
+    tft.setCursor(4, 62);
+    tft.print("* = tutup");
+}
+
 void showIdle(bool wifiOk, bool sensorOk, bool serverOk, const String &headerText,
               const String &clockText, const String &secText, const String &dateText,
               const String &modeLabel) {

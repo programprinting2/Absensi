@@ -10,6 +10,7 @@
 #include "lcd_ui.h"
 #include "network_task.h"
 #include "ntp_time.h"
+#include "server_config.h"
 #include "storage_queue.h"
 #include "wifi_manager.h"
 #include <Arduino.h>
@@ -307,8 +308,9 @@ void setup() {
     device_config::begin();
     employee_cache::begin();
     storage_queue::begin();
+    server_config::begin();
     wifi_manager::begin();
-    network_task::begin(DEVICE_CODE);
+    network_task::begin();
 
     state = AppState::WifiConnecting;
     lcd_ui::showWifiConnecting();
@@ -387,7 +389,7 @@ void loop() {
             if (key != '\0') {
                 unsigned long now = millis();
                 if (key == '1' && wifiResetLastKey == '*' && now - wifiResetLastKeyMs <= WIFI_RESET_COMBO_WINDOW_MS) {
-                    wifi_manager::startConfigPortal();
+                    wifi_manager::startApConfigPortal();
                     wifiResetLastKey = '\0';
                     break;
                 }
@@ -424,7 +426,7 @@ void loop() {
 
             if (network_task::takePendingCommand(activeCommand)) {
                 if (activeCommand.commandType == "start_wifi_portal") {
-                    wifi_manager::startConfigPortal();
+                    wifi_manager::startApConfigPortal();
                     network_task::CommandResult result;
                     result.commandId = activeCommand.id;
                     result.success = true;
