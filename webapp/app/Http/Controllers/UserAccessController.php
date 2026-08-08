@@ -34,14 +34,15 @@ class UserAccessController extends Controller
 
         $data = $validator->validated();
 
-        User::create([
+        $user = new User;
+        $user->forceFill([
             'name' => $data['name'],
             'email' => $data['email'],
             'password' => $data['password'],
             'role' => $data['role'],
             'employee_id' => null,
             'email_verified_at' => now(),
-        ]);
+        ])->save();
 
         return redirect()
             ->route('settings.index', ['tab' => 'hak-akses'])

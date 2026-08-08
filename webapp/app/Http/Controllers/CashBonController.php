@@ -43,6 +43,8 @@ class CashBonController extends Controller
 
     public function destroy(Employee $employee, CashBon $cashBon)
     {
+        $this->authorize('cancelCashBon');
+
         abort_unless($cashBon->employee_id === $employee->id, 404);
 
         try {

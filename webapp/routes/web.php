@@ -30,6 +30,7 @@ Route::view('profile', 'profile')
 Route::middleware(['auth', 'verified', 'menu'])->group(function () {
     Volt::route('dashboard', 'pages.dashboard')->name('dashboard');
     Volt::route('my/attendance', 'pages.employee.dashboard')->name('employee.dashboard');
+    Volt::route('my/leaves', 'pages.employee.leaves')->name('employee.leaves');
 
     Volt::route('employees', 'pages.employees.index')->name('employees.index');
     Route::get('employees/create', [EmployeeController::class, 'create'])->name('employees.create');
@@ -53,6 +54,7 @@ Route::middleware(['auth', 'verified', 'menu'])->group(function () {
     Route::delete('work-schedule/{schedule}', [WorkScheduleController::class, 'destroy'])->name('work-schedule.destroy');
 
     Volt::route('attendance', 'pages.attendance.index')->name('attendance.index');
+    Volt::route('leaves', 'pages.leaves.index')->name('leaves.index');
     Volt::route('reports/attendance', 'pages.reports.attendance')->name('reports.attendance');
     Volt::route('cash-bons', 'pages.cash-bons.index')->name('cash-bons.index');
 

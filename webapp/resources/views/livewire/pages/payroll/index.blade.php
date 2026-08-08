@@ -22,6 +22,10 @@ new #[Layout('layouts.app')] class extends Component
 
     public int $jointLeaveDays = 0;
 
+    public int $annualLeaveDays = 12;
+
+    public int $leaveCashDayDivisor = 25;
+
     public bool $showCreateModal = false;
 
     public ?string $expandedPeriodId = null;
@@ -66,12 +70,16 @@ new #[Layout('layouts.app')] class extends Component
             'cutoffStartDay' => ['required', 'integer', 'min:1', 'max:31'],
             'cutoffEndDay' => ['required', 'integer', 'min:1', 'max:31'],
             'jointLeaveDays' => ['required', 'integer', 'min:0', 'max:31'],
+            'annualLeaveDays' => ['required', 'integer', 'min:0', 'max:366'],
+            'leaveCashDayDivisor' => ['required', 'integer', 'min:1', 'max:31'],
         ]);
 
         PayrollSetting::active()->update([
             'cutoff_start_day' => $this->cutoffStartDay,
             'cutoff_end_day' => $this->cutoffEndDay,
             'joint_leave_days' => $this->jointLeaveDays,
+            'annual_leave_days' => $this->annualLeaveDays,
+            'leave_cash_day_divisor' => $this->leaveCashDayDivisor,
         ]);
 
         $period = $service->createPeriod($this->newMonth, $this->newYear);
@@ -101,6 +109,8 @@ new #[Layout('layouts.app')] class extends Component
 
     public function finalize(string $periodId, PayrollPeriodService $service): void
     {
+        $this->authorize('managePayrollPeriods');
+
         $period = PayrollPeriod::findOrFail($periodId);
         if (! $period->isReview()) {
             return;
@@ -116,6 +126,8 @@ new #[Layout('layouts.app')] class extends Component
 
     public function unfinalize(string $periodId, PayrollPeriodService $service): void
     {
+        $this->authorize('managePayrollPeriods');
+
         $period = PayrollPeriod::findOrFail($periodId);
         if (! $period->isFinalized()) {
             return;
@@ -132,6 +144,8 @@ new #[Layout('layouts.app')] class extends Component
 
     public function deletePeriod(string $periodId): void
     {
+        $this->authorize('managePayrollPeriods');
+
         $period = PayrollPeriod::findOrFail($periodId);
         if ($period->isFinalized()) {
             return;
@@ -164,6 +178,8 @@ new #[Layout('layouts.app')] class extends Component
         $this->cutoffStartDay = (int) $settings->cutoff_start_day;
         $this->cutoffEndDay = (int) $settings->cutoff_end_day;
         $this->jointLeaveDays = (int) ($settings->joint_leave_days ?? 0);
+        $this->annualLeaveDays = (int) ($settings->annual_leave_days ?? 12);
+        $this->leaveCashDayDivisor = (int) ($settings->leave_cash_day_divisor ?? 25);
     }
 }; ?>
 
@@ -222,7 +238,9 @@ new #[Layout('layouts.app')] class extends Component
                                         <span wire:loading.remove wire:target="generate('{{ $period->id }}')">Generate</span>
                                         <span wire:loading wire:target="generate('{{ $period->id }}')">Menghitung...</span>
                                     </button>
-                                    <button type="button" wire:click="deletePeriod('{{ $period->id }}')" wire:confirm="Hapus periode ini?" class="text-sm text-red-600 hover:text-red-800 font-medium">Hapus</button>
+                                    @can('managePayrollPeriods')
+                                        <button type="button" wire:click="deletePeriod('{{ $period->id }}')" wire:confirm="Hapus periode ini?" class="text-sm text-red-600 hover:text-red-800 font-medium">Hapus</button>
+                                    @endcan
                                 @elseif ($period->isReview())
                                     @include('payroll.partials.print-paper-menu', [
                                         'baseUrl' => route('payroll.slips', $period),
@@ -232,6 +250,7 @@ new #[Layout('layouts.app')] class extends Component
                                         'selectionRoot' => '[data-period-print-root="'.$pid.'"]',
                                     ])
                                     <button type="button" wire:click="generate('{{ $period->id }}')" wire:confirm="Generate ulang gaji periode ini? Penyesuaian manual akan diganti." class="text-sm text-indigo-600 hover:text-indigo-800 font-medium">Generate Ulang</button>
+                                    @can('managePayrollPeriods')
                                     <button
                                         type="button"
                                         wire:click="finalize('{{ $period->id }}')"
@@ -245,6 +264,7 @@ new #[Layout('layouts.app')] class extends Component
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z"/>
                                         </svg>
                                     </button>
+                                    @endcan
                                 @else
                                     @include('payroll.partials.print-paper-menu', [
                                         'baseUrl' => route('payroll.slips', $period),
@@ -253,6 +273,7 @@ new #[Layout('layouts.app')] class extends Component
                                         'requireSelected' => true,
                                         'selectionRoot' => '[data-period-print-root="'.$pid.'"]',
                                     ])
+                                    @can('managePayrollPeriods')
                                     <button
                                         type="button"
                                         wire:click="unfinalize('{{ $period->id }}')"
@@ -266,6 +287,7 @@ new #[Layout('layouts.app')] class extends Component
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
                                         </svg>
                                     </button>
+                                    @endcan
                                 @endif
                             </div>
                         </div>
@@ -426,6 +448,21 @@ new #[Layout('layouts.app')] class extends Component
                                     <div class="mt-1 flex items-center h-10 px-3 rounded-md border border-gray-200 bg-gray-50 text-sm font-semibold text-gray-900 tabular-nums"
                                          x-text="workDayCount"></div>
                                     <p class="mt-1 text-[11px] text-gray-400">Otomatis: total − Minggu − libur bersama</p>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <x-input-label for="annualLeaveDays" value="Default Jatah Cuti Tahunan (hari)" />
+                                    <x-text-input wire:model="annualLeaveDays" id="annualLeaveDays" type="number" min="0" max="366" class="mt-1 block w-full" />
+                                    <p class="mt-1 text-[11px] text-gray-400">Dipakai saat jatah tahun baru karyawan dibuat. Bisa diubah per orang di menu Cuti → Jatah cuti.</p>
+                                    <x-input-error :messages="$errors->get('annualLeaveDays')" class="mt-2" />
+                                </div>
+                                <div>
+                                    <x-input-label for="leaveCashDayDivisor" value="Pembagi Uang Cuti" />
+                                    <x-text-input wire:model="leaveCashDayDivisor" id="leaveCashDayDivisor" type="number" min="1" max="31" class="mt-1 block w-full" />
+                                    <p class="mt-1 text-[11px] text-gray-400">Rumus: gaji pokok ÷ pembagi × sisa hari cuti</p>
+                                    <x-input-error :messages="$errors->get('leaveCashDayDivisor')" class="mt-2" />
                                 </div>
                             </div>
                         </div>

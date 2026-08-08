@@ -99,22 +99,33 @@ class AttendanceReportService
             });
 
         if ($employees && $rangeStart && $rangeEnd) {
-            $rows = $rows->union($this->absenceRows($employees, $rows->keys(), $rangeStart, $rangeEnd));
+            $leaveMap = app(LeaveService::class)->approvedLeavesByEmployeeDate(
+                $employees->pluck('id'),
+                $rangeStart,
+                $rangeEnd,
+            );
+            $rows = $rows->union($this->absenceRows($employees, $rows->keys(), $rangeStart, $rangeEnd, $leaveMap));
         }
 
         return $rows->sortByDesc('date')->values();
     }
 
     /**
-     * Baris "Tidak Masuk" untuk hari kerja tanpa log sama sekali, dibatasi
+     * Baris "Tidak Masuk" / "Cuti" untuk hari kerja tanpa log sama sekali, dibatasi
      * dari tanggal karyawan itu dibuat sampai hari ini (tidak menandai hari
      * sebelum karyawannya terdaftar, atau hari yang belum terjadi).
      *
      * @param  Collection<int, \App\Models\Employee>  $employees
      * @param  Collection<int, string>  $existingKeys
+     * @param  array<string, array<string, \App\Models\EmployeeLeave>>  $leaveMap
      */
-    private function absenceRows(Collection $employees, Collection $existingKeys, Carbon $rangeStart, Carbon $rangeEnd): Collection
-    {
+    private function absenceRows(
+        Collection $employees,
+        Collection $existingKeys,
+        Carbon $rangeStart,
+        Carbon $rangeEnd,
+        array $leaveMap = [],
+    ): Collection {
         $today = AppTimezone::nowDisplay()->startOfDay();
         $endDisplay = AppTimezone::toDisplay($rangeEnd);
         $end = $endDisplay->lessThan($today) ? $endDisplay->copy()->startOfDay() : $today;
@@ -147,6 +158,34 @@ class AttendanceReportService
                     continue;
                 }
 
+                $leave = $leaveMap[$employee->id][$date->toDateString()] ?? null;
+
+                if ($leave) {
+                    $rows->put($key, [
+                        'employee' => $employee,
+                        'date' => $date->toDateString(),
+                        'date_label' => $date->copy()->locale('id')->translatedFormat('l, j M y'),
+                        'clock_in' => null,
+                        'break_start' => null,
+                        'break_end' => null,
+                        'clock_out' => null,
+                        'break_duration' => null,
+                        'is_late' => false,
+                        'is_over_break' => false,
+                        'is_early_out' => false,
+                        'is_short_work' => false,
+                        'is_leave' => true,
+                        'leave_type' => $leave->leave_type,
+                        'leave_type_label' => $leave->typeLabel(),
+                        'status' => 'Cuti',
+                        'compliance_ok' => true,
+                        'compliance_issues' => [],
+                        'status_parts' => [],
+                    ]);
+
+                    continue;
+                }
+
                 $rows->put($key, [
                     'employee' => $employee,
                     'date' => $date->toDateString(),
@@ -160,6 +199,7 @@ class AttendanceReportService
                     'is_over_break' => false,
                     'is_early_out' => false,
                     'is_short_work' => false,
+                    'is_leave' => false,
                     'status' => 'Tidak Masuk',
                     'compliance_ok' => false,
                     'compliance_issues' => ['Tidak masuk'],
@@ -181,12 +221,29 @@ class AttendanceReportService
     public function todayStatusForEmployees(Collection $employees, Collection $todayLogs, ?WorkSchedule $schedule = null): Collection
     {
         $logsByEmployee = $todayLogs->groupBy('employee_id');
+        $today = AppTimezone::nowDisplay()->toDateString();
+        $leaveMap = app(LeaveService::class)->approvedLeavesByEmployeeDate(
+            $employees->pluck('id'),
+            $today,
+            $today,
+        );
 
-        return $employees->map(function ($employee) use ($logsByEmployee, $schedule) {
+        return $employees->map(function ($employee) use ($logsByEmployee, $schedule, $leaveMap, $today) {
             $logs = $logsByEmployee->get($employee->id, collect())->sortBy('event_time');
 
-            $row = $this->buildAttendanceRow($logs, $schedule, AppTimezone::nowDisplay()->toDateString());
+            $row = $this->buildAttendanceRow($logs, $schedule, $today);
             $row['employee'] = $employee;
+
+            if (! $row['clock_in'] && ! $row['clock_out'] && ($leaveMap[$employee->id][$today] ?? null)) {
+                $leave = $leaveMap[$employee->id][$today];
+                $row['status'] = 'Cuti';
+                $row['is_leave'] = true;
+                $row['leave_type'] = $leave->leave_type;
+                $row['leave_type_label'] = $leave->typeLabel();
+                $row['compliance_ok'] = true;
+                $row['compliance_issues'] = [];
+                $row['status_parts'] = [];
+            }
 
             return $row;
         })->values();

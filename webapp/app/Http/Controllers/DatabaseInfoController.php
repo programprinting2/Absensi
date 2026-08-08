@@ -289,7 +289,9 @@ class DatabaseInfoController extends Controller
             'port' => $port,
             'database' => $database,
             'username' => $username,
-            'password' => $password,
+            // Jangan kirim password plaintext ke browser; admin isi ulang jika perlu.
+            'password' => '',
+            'password_set' => $password !== '',
         ];
     }
 
@@ -545,6 +547,8 @@ SQL);
 
     public function loadDestinationConfig()
     {
+        $password = $this->readEnvValue('MIGRATION_DESTINATION_DB_PASSWORD', '');
+
         return response()->json([
             'success' => true,
             'config' => [
@@ -553,7 +557,8 @@ SQL);
                 'port' => $this->readEnvValue('MIGRATION_DESTINATION_DB_PORT', ''),
                 'database' => $this->readEnvValue('MIGRATION_DESTINATION_DB_DATABASE', ''),
                 'username' => $this->readEnvValue('MIGRATION_DESTINATION_DB_USERNAME', ''),
-                'password' => $this->readEnvValue('MIGRATION_DESTINATION_DB_PASSWORD', ''),
+                'password' => '',
+                'password_set' => $password !== '',
             ],
         ]);
     }

@@ -8,8 +8,15 @@
         ['label' => 'PPh 21', 'url' => route('settings.index', ['tab' => 'pph21']), 'active' => false],
         ['label' => 'Cetak Slip', 'url' => route('settings.index', ['tab' => 'slip']), 'active' => false],
         ['label' => 'Log Aktivitas', 'url' => route('settings.index', ['tab' => 'log-aktivitas']), 'active' => false],
-        ['label' => 'Database', 'url' => route('tools.database'), 'active' => request()->routeIs('tools.database*', 'tools.google-drive*')],
     ];
+
+    if (auth()->user()?->canAccessMenu('tools.database')) {
+        $settingsTabs[] = [
+            'label' => 'Database',
+            'url' => route('tools.database'),
+            'active' => request()->routeIs('tools.database*', 'tools.google-drive*'),
+        ];
+    }
 @endphp
 
 <nav class="shrink-0 border-b border-gray-200 px-4 bg-white">

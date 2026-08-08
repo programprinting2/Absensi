@@ -161,9 +161,6 @@ new class extends Component
                         </td>
                         <td class="px-4 py-3 text-gray-800">
                             <p>{{ $log->description }}</p>
-                            @if ($log->action)
-                                <p class="mt-0.5 text-xs text-gray-400 font-mono">{{ $log->action }}</p>
-                            @endif
                         </td>
                         <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500 tabular-nums">
                             {{ $log->ip_address ?: '—' }}

@@ -19,22 +19,7 @@ new #[Layout('layouts.guest')] class extends Component
      */
     public function register(): void
     {
-        $validated = $this->validate([
-            'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
-            'password' => ['required', 'string', 'confirmed', Rules\Password::defaults()],
-        ]);
-
-        event(new Registered($user = User::create([
-            'name' => $validated['name'],
-            'email' => $validated['email'],
-            'password' => $validated['password'],
-            'role' => User::ROLE_ADMIN,
-        ])));
-
-        Auth::login($user);
-
-        $this->redirect(route('dashboard', absolute: false), navigate: true);
+        abort(403, 'Registrasi publik dinonaktifkan. Buat akun lewat Settings → Hak Akses.');
     }
 }; ?>
 

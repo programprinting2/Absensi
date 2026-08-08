@@ -332,7 +332,7 @@
                                 <input type="checkbox" name="menus[]" value="{{ $item['key'] }}"
                                        class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
                                        @checked(in_array($item['key'], old('menus', $selectedKeys), true))
-                                       @disabled($selectedRole->slug === 'admin' && $item['key'] === 'settings')>
+                                       @disabled($selectedRole->slug === 'admin' && in_array($item['key'], ['settings', 'tools.database'], true))>
                                 <span>
                                     {{ $item['label'] }}
                                     <span class="text-xs text-gray-400">{{ $item['key'] }}</span>
@@ -341,8 +341,9 @@
                         @endforeach
                     </div>
                     @if ($selectedRole->slug === 'admin')
-                        <p class="mt-2 text-xs text-gray-500">Menu Settings wajib aktif untuk role Admin.</p>
+                        <p class="mt-2 text-xs text-gray-500">Menu Settings dan Database &amp; Tools wajib aktif untuk role Admin.</p>
                         <input type="hidden" name="menus[]" value="settings">
+                        <input type="hidden" name="menus[]" value="tools.database">
                     @endif
                 </div>
 

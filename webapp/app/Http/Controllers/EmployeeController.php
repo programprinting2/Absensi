@@ -145,7 +145,8 @@ class EmployeeController extends Controller
             }
             $portalUser->save();
         } else {
-            User::create([
+            $portal = new User;
+            $portal->forceFill([
                 'name' => $employee->full_name,
                 'email' => $data['portal_email'],
                 'password' => $data['portal_password'],
@@ -153,6 +154,7 @@ class EmployeeController extends Controller
                 'employee_id' => $employee->id,
                 'email_verified_at' => now(),
             ]);
+            $portal->save();
         }
 
         return redirect()

@@ -76,6 +76,8 @@ new #[Layout('layouts.app')] class extends Component
 
     public function cancelBon(string $id, CashBonService $cashBons): void
     {
+        $this->authorize('cancelCashBon');
+
         $cashBon = CashBon::findOrFail($id);
 
         try {
@@ -223,6 +225,7 @@ new #[Layout('layouts.app')] class extends Component
                                             @endif
                                         </button>
                                         @if ($item['status'] === 'active')
+                                            @can('cancelCashBon')
                                             <div class="flex items-center px-3 border-l border-gray-100 shrink-0" @click.stop>
                                                 <button
                                                     type="button"
@@ -233,6 +236,7 @@ new #[Layout('layouts.app')] class extends Component
                                                     Batal
                                                 </button>
                                             </div>
+                                            @endcan
                                         @endif
                                     </div>
 

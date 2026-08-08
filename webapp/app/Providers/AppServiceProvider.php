@@ -2,12 +2,14 @@
 
 namespace App\Providers;
 
+use App\Policies\SensitiveFinancePolicy;
 use App\Services\ActivityLogger;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -25,6 +27,14 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        $policy = SensitiveFinancePolicy::class;
+
+        Gate::define('managePayrollPeriods', [$policy, 'managePayrollPeriods']);
+        Gate::define('manageLeaveQuotaMoney', [$policy, 'manageLeaveQuotaMoney']);
+        Gate::define('deleteLeaveGrant', [$policy, 'deleteLeaveGrant']);
+        Gate::define('cancelCashBon', [$policy, 'cancelCashBon']);
+        Gate::define('approveLeave', [$policy, 'approveLeave']);
+
         Event::listen(Login::class, function (Login $event): void {
             ActivityLogger::medium(
                 "Login berhasil: {$event->user->name} ({$event->user->email})",

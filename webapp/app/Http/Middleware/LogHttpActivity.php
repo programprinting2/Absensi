@@ -97,14 +97,13 @@ class LogHttpActivity
 
         if ($path === 'livewire/update') {
             $calls = $this->extractLivewireCalls($request);
-            $label = collect($calls)->map(fn ($c) => $c['component'].'::'.$c['method'])->implode(', ');
-            $level = collect($calls)->contains(fn ($c) => preg_match('/delete|destroy|cancel|reset|clear|finalize|unfinalize/i', $c['method']))
+            $level = collect($calls)->contains(fn ($c) => preg_match('/delete|destroy|cancelBon|resetToday|clearDummy|finalize|unfinalize/i', $c['method']))
                 ? 'warning'
-                : (collect($calls)->contains(fn ($c) => preg_match('/save|update|store|create|generate|adjust/i', $c['method']) ) ? 'medium' : 'normal');
+                : (collect($calls)->contains(fn ($c) => preg_match('/save|update|store|create|generate|adjust|recalculate|addComponent|enroll|resetPassword/i', $c['method'])) ? 'medium' : 'normal');
 
             return [
                 $level,
-                'Livewire: '.$label,
+                ActivityLogger::describeLivewireCalls($calls),
                 'livewire.update',
                 [
                     'status' => $status,
@@ -119,10 +118,14 @@ class LogHttpActivity
         }
 
         $route = $request->route()?->getName();
+        $description = ActivityLogger::describeRequest($request);
+        if ($status >= 400) {
+            $description .= ' (gagal)';
+        }
 
         return [
             $level,
-            ActivityLogger::describeRequest($request).($status >= 400 ? " [HTTP {$status}]" : ''),
+            $description,
             $route,
             [
                 'status' => $status,
@@ -161,16 +164,7 @@ class LogHttpActivity
                     continue;
                 }
                 $method = (string) ($call['method'] ?? '');
-                if ($method === '' || in_array($method, ['$set', '$refresh', '$commit'], true)) {
-                    continue;
-                }
-                // Skip pure property sync noise
-                if (str_starts_with($method, '$')) {
-                    continue;
-                }
-
-                // Auth & clear-log punya keterangan eksplisit tersendiri.
-                if (in_array($method, ['login', 'logout', 'clearLogs'], true)) {
+                if (ActivityLogger::shouldSkipLivewireMethod($method)) {
                     continue;
                 }
 

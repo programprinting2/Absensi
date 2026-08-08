@@ -167,4 +167,14 @@ class Employee extends Model
     {
         return $this->hasMany(AttendanceDayReason::class);
     }
+
+    public function leaves()
+    {
+        return $this->hasMany(EmployeeLeave::class);
+    }
+
+    public function leaveBalances()
+    {
+        return $this->hasMany(EmployeeLeaveBalance::class);
+    }
 }

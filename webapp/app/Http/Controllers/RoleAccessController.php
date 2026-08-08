@@ -52,9 +52,14 @@ class RoleAccessController extends Controller
 
         $menus = $data['menus'] ?? [];
 
-        // Role admin system wajib tetap punya settings agar tidak terkunci.
-        if ($role->slug === 'admin' && ! in_array('settings', $menus, true)) {
-            $menus[] = 'settings';
+        // Role admin system wajib tetap punya settings + tools agar tidak terkunci.
+        if ($role->slug === 'admin') {
+            if (! in_array('settings', $menus, true)) {
+                $menus[] = 'settings';
+            }
+            if (! in_array('tools.database', $menus, true)) {
+                $menus[] = 'tools.database';
+            }
         }
 
         $role->syncMenus($menus);

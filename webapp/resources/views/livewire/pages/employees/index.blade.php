@@ -5,6 +5,7 @@ use App\Models\Employee;
 use App\Models\User;
 use App\Services\ParameterService;
 use App\Support\Toast;
+use Illuminate\Support\Str;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
@@ -15,6 +16,9 @@ new #[Layout('layouts.app')] class extends Component
 
     public bool $showModal = false;
     public ?string $editingEmployeeId = null;
+
+    /** Password hasil reset (sekali tampil). */
+    public ?string $resetPasswordPlain = null;
 
     public string $full_name = '';
     public string $nik = '';
@@ -72,6 +76,7 @@ new #[Layout('layouts.app')] class extends Component
     public function closeModal(): void
     {
         $this->showModal = false;
+        $this->resetPasswordPlain = null;
         $this->resetValidation();
     }
 
@@ -173,37 +178,35 @@ new #[Layout('layouts.app')] class extends Component
             return;
         }
 
+        $this->resetPasswordPlain = null;
+
         $employee = Employee::with('portalUser')->findOrFail($this->editingEmployeeId);
         $user = $employee->portalUser;
 
         if (! $user) {
-            $user = User::query()
-                ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower(trim($employee->full_name))])
-                ->orderByRaw("CASE WHEN role = ? THEN 0 ELSE 1 END", [User::ROLE_EMPLOYEE])
-                ->first();
-        }
-
-        if (! $user) {
-            Toast::error('Karyawan belum punya akun login.', $this);
+            Toast::error('Karyawan belum punya akun login. Buat lewat tab Akses Portal.', $this);
 
             return;
         }
 
-        if (blank($user->employee_id)) {
-            $taken = User::query()
-                ->where('employee_id', $employee->id)
-                ->where('id', '!=', $user->id)
-                ->exists();
+        if ($user->employee_id !== $employee->id) {
+            Toast::error('Akun portal tidak tertaut ke karyawan ini.', $this);
 
-            if (! $taken) {
-                $user->employee_id = $employee->id;
-            }
+            return;
         }
 
-        $user->password = '123456';
+        if ($user->isAdmin()) {
+            Toast::error('Akun admin tidak bisa direset dari sini. Gunakan Settings → Hak Akses.', $this);
+
+            return;
+        }
+
+        $plain = Str::password(12, symbols: false);
+        $user->password = $plain;
         $user->save();
 
-        Toast::success('Password direset ke 123456.', $this);
+        $this->resetPasswordPlain = $plain;
+        Toast::success('Password baru dibuat. Salin sekarang — tidak ditampilkan lagi setelah modal ditutup.', $this);
     }
 
     public function enrollFingerprint(string $deviceId): void
@@ -266,6 +269,7 @@ new #[Layout('layouts.app')] class extends Component
         $this->pin = '';
         $this->pin_confirmation = '';
         $this->editingEmployeeId = null;
+        $this->resetPasswordPlain = null;
         $this->resetValidation();
     }
 
@@ -561,14 +565,20 @@ new #[Layout('layouts.app')] class extends Component
                                             ?? ($userEmailsByName[mb_strtolower(trim($full_name))] ?? null);
                                     @endphp
                                     @if ($editAccountEmail)
-                                        <p class="mt-0.5 text-xs text-gray-500">{{ $editAccountEmail }} · reset ke <span class="font-mono">123456</span></p>
+                                        <p class="mt-0.5 text-xs text-gray-500">{{ $editAccountEmail }}</p>
                                     @else
-                                        <p class="mt-0.5 text-xs text-gray-500">Reset password akun ke default <span class="font-mono">123456</span>.</p>
+                                        <p class="mt-0.5 text-xs text-gray-500">Reset membuat password acak baru (hanya untuk akun portal karyawan tertaut).</p>
+                                    @endif
+                                    @if ($resetPasswordPlain)
+                                        <div class="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                                            <p class="text-xs font-medium text-amber-900">Password baru (salin sekarang):</p>
+                                            <p class="mt-1 font-mono text-sm text-amber-950 select-all">{{ $resetPasswordPlain }}</p>
+                                        </div>
                                     @endif
                                     <button
                                         type="button"
                                         wire:click="resetPassword"
-                                        wire:confirm="Reset password akun login ke 123456?"
+                                        wire:confirm="Buat password acak baru untuk akun portal karyawan ini?"
                                         class="mt-3 inline-flex items-center px-3 py-2 rounded-md border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                                     >
                                         Reset Password

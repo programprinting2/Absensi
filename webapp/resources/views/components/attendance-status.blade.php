@@ -10,6 +10,7 @@
                 'Bekerja' => 'bg-green-100 text-green-800',
                 'Istirahat' => 'bg-yellow-100 text-yellow-800',
                 'Pulang' => 'bg-blue-100 text-blue-800',
+                'Cuti' => 'bg-sky-100 text-sky-800',
                 'Tidak Masuk' => 'bg-red-100 text-red-700',
                 default => 'bg-gray-100 text-gray-600',
             };

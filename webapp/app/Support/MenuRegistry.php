@@ -103,12 +103,12 @@ class MenuRegistry
 
         $role = $user->roleModel();
         if (! $role) {
-            // fallback legacy: admin lihat semua kecuali employee dashboard
-            if ($user->isAdmin()) {
-                return $menuKey !== 'employee.dashboard';
+            // Tanpa role yang valid: jangan anggap admin. Karyawan hanya dashboard sendiri.
+            if ($user->isEmployee()) {
+                return in_array($menuKey, ['employee.dashboard', 'employee.leaves'], true);
             }
 
-            return $menuKey === 'employee.dashboard';
+            return false;
         }
 
         return in_array($menuKey, self::menuKeysForRole($role), true);

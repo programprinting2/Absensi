@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
-#[Fillable(['name', 'email', 'password', 'role', 'employee_id'])]
+#[Fillable(['name', 'email', 'password'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -43,14 +43,18 @@ class User extends Authenticatable
 
     public function roleModel(): ?Role
     {
-        $slug = $this->role ?: self::ROLE_ADMIN;
+        if (! filled($this->role)) {
+            return null;
+        }
+
+        $slug = $this->role;
 
         return once(fn () => Role::query()->where('slug', $slug)->first());
     }
 
     public function isAdmin(): bool
     {
-        return ($this->role ?: self::ROLE_ADMIN) === self::ROLE_ADMIN;
+        return $this->role === self::ROLE_ADMIN;
     }
 
     public function isEmployee(): bool

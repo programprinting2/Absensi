@@ -2034,6 +2034,9 @@ function applySourceConfigToForm(config) {
   document.getElementById('migration-source-database').value = config.database || '';
   document.getElementById('migration-source-username').value = config.username || '';
   document.getElementById('migration-source-password').value = config.password || '';
+  if (config.password_set) {
+    document.getElementById('migration-source-password').placeholder = '(tersimpan — isi ulang jika mau uji koneksi)';
+  }
 }
 
 async function saveDestinationConfig() {
@@ -2110,6 +2113,9 @@ function applyDestinationConfigToForm(config) {
   document.getElementById('migration-destination-database').value = config.database || '';
   document.getElementById('migration-destination-username').value = config.username || '';
   document.getElementById('migration-destination-password').value = config.password || '';
+  if (config.password_set) {
+    document.getElementById('migration-destination-password').placeholder = '(tersimpan — isi ulang jika mau uji koneksi)';
+  }
 }
 
 function formatNumber(value) {
