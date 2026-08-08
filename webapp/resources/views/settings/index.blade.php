@@ -148,6 +148,8 @@
 
                                                 <div class="mt-3 flex items-center gap-1">
                                                     <a href="{{ route('settings.devices.wifi.portal', $device) }}"
+                                                       target="_blank"
+                                                       rel="noopener noreferrer"
                                                        class="inline-flex items-center justify-center w-9 h-9 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 hover:text-indigo-600"
                                                        title="Buka portal konfigurasi device{{ $device->last_ip ? ' ('.$device->last_ip.')' : ' — IP belum diketahui' }}">
                                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

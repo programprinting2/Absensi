@@ -129,6 +129,20 @@ void recordFailure(const String &reason) {
     state = AppState::ShowResult;
 }
 
+// Sensor cocok slot tapi mapping sudah tidak ada (template hantu setelah hapus).
+void handleFingerprintRejected(int slotId, const String &reason) {
+    if (slotId >= 0) {
+        if (fingerprint_handler::deleteAtSlot(slotId)) {
+            Serial.print(F("[fp] orphan slot "));
+            Serial.print(slotId);
+            Serial.println(F(" dihapus dari sensor"));
+        }
+        network_task::requestCacheRefresh();
+    }
+    fingerprint_handler::indicateFailure();
+    recordFailure(reason);
+}
+
 void redrawIdle(bool force = false) {
     time_t now = ntp_time::now();
     bool wifiConnected = false;
@@ -206,6 +220,23 @@ void handleEnrollFlow() {
     network_task::CommandResult result;
     result.commandId = activeCommand.id;
 
+    // Command enroll lama masih pending di server (mis. setelah reboot) —
+    // skip jika karyawan sudah terdaftar di cache device ini.
+    int existingSlot = -1;
+    if (activeCommand.employeeId.length() > 0 &&
+        employee_cache::findSlotForEmployee(activeCommand.employeeId, existingSlot)) {
+        Serial.print(F("[enroll] sudah terdaftar, skip command slot="));
+        Serial.println(existingSlot);
+        result.success = true;
+        result.slotId = existingSlot;
+        result.employeeId = activeCommand.employeeId;
+        lcd_ui::showEnrollScreen("Daftarkan sidik jari !", activeCommand.employeeName,
+                                 activeCommand.employeeCode, lcd_ui::COLOR_GREEN, "Sudah terdaftar");
+        network_task::submitCommandResult(result);
+        delay(1500);
+        return;
+    }
+
     int maxSlots = fingerprint_handler::capacity();
     if (maxSlots <= 0) {
         maxSlots = 200;
@@ -267,6 +298,9 @@ void handleEnrollFlow() {
 void handleDeleteFlow() {
     network_task::CommandResult result;
     result.commandId = activeCommand.id;
+
+    lcd_ui::showEnrollScreen("Hapus sidik jari", activeCommand.employeeName,
+                             activeCommand.employeeCode, lcd_ui::COLOR_YELLOW, "Memproses...");
 
     if (activeCommand.fingerprintSlotId < 0) {
         result.errorReason = "Slot tidak valid";
@@ -443,8 +477,7 @@ void loop() {
                 if (employee_cache::findBySlotId(slotId, employee)) {
                     recordAttendance(employee.id, employee.fullName, currentMode, AttendanceMethod::Fingerprint);
                 } else {
-                    fingerprint_handler::indicateFailure();
-                    recordFailure("Sidik Jari Tidak Dikenali");
+                    handleFingerprintRejected(slotId, "Sidik Jari Tidak Dikenali");
                 }
                 break;
             }
@@ -581,8 +614,7 @@ void loop() {
                     if (employee_cache::findBySlotId(slotId, employee)) {
                         recordAttendance(employee.id, employee.fullName, currentMode, AttendanceMethod::Fingerprint);
                     } else {
-                        fingerprint_handler::indicateFailure();
-                        recordFailure("Sidik Jari Tidak Dikenali");
+                        handleFingerprintRejected(slotId, "Sidik Jari Tidak Dikenali");
                     }
                     shownAt = millis();
                     break;

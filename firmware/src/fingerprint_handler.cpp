@@ -180,6 +180,10 @@ void indicateFailure() {
     if (!sensorReady) {
         return;
     }
+    // Matikan hijau dulu (sisa fingerSearch sukses / template hantu di sensor).
+    finger.LEDcontrol(FINGERPRINT_LED_OFF, 0, FINGERPRINT_LED_RED);
+    finger.LEDcontrol(false);
+    delay(30);
     // Modul bi-color / Aura: merah eksplisit (coba beberapa kali).
     for (int attempt = 0; attempt < 3; attempt++) {
         uint8_t r = finger.LEDcontrol(FINGERPRINT_LED_ON, 0, FINGERPRINT_LED_RED);
@@ -189,8 +193,6 @@ void indicateFailure() {
         delay(20);
         drainSerial();
     }
-    // Modul LED tunggal: matikan saja — jangan LEDcontrol(true) karena bisa
-    // tetap hijau (sisa state scan sukses di hardware).
     finger.LEDcontrol(false);
 }
 
