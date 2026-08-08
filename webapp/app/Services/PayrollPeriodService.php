@@ -37,6 +37,10 @@ class PayrollPeriodService
 
     public function finalize(PayrollPeriod $period, User $user): void
     {
+        if (! $period->isReview()) {
+            throw new \RuntimeException('Hanya periode berstatus Review yang bisa difinalisasi.');
+        }
+
         $period->update([
             'status' => 'finalized',
             'finalized_at' => now(),
@@ -44,5 +48,20 @@ class PayrollPeriodService
         ]);
 
         app(CashBonService::class)->finalizeForPeriod($period);
+    }
+
+    public function unfinalize(PayrollPeriod $period): void
+    {
+        if (! $period->isFinalized()) {
+            throw new \RuntimeException('Hanya periode berstatus Final yang bisa dibuka kembali.');
+        }
+
+        app(CashBonService::class)->unfinalizeForPeriod($period);
+
+        $period->update([
+            'status' => 'review',
+            'finalized_at' => null,
+            'finalized_by' => null,
+        ]);
     }
 }

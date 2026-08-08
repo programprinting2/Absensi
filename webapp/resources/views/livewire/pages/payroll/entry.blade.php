@@ -13,6 +13,7 @@ new #[Layout('layouts.app')] class extends Component
     public PayrollEntry $entry;
 
     public bool $editing = false;
+    public bool $showHistoryModal = false;
 
     public ?float $adjustBaseSalary = null;
     public ?float $adjustOvertimeHours = null;
@@ -44,6 +45,16 @@ new #[Layout('layouts.app')] class extends Component
         $this->newLabel = '';
         $this->newAmount = '';
         $this->cancelEditAmount();
+    }
+
+    public function openHistory(): void
+    {
+        $this->showHistoryModal = true;
+    }
+
+    public function closeHistory(): void
+    {
+        $this->showHistoryModal = false;
     }
 
     public function startEditAmount(string $detailId, $current = null): void
@@ -169,7 +180,17 @@ new #[Layout('layouts.app')] class extends Component
         $this->entry->load(['employee', 'details', 'period']);
         $details = $this->entry->details->groupBy('category');
 
-        return compact('details');
+        $salaryHistory = $this->showHistoryModal
+            ? PayrollEntry::query()
+                ->with('period')
+                ->where('employee_id', $this->entry->employee_id)
+                ->whereHas('period')
+                ->get()
+                ->sortByDesc(fn (PayrollEntry $row) => optional($row->period)->period_start?->format('Y-m-d') ?? '')
+                ->values()
+            : collect();
+
+        return compact('details', 'salaryHistory');
     }
 }; ?>
 
@@ -195,8 +216,18 @@ new #[Layout('layouts.app')] class extends Component
 
     <div class="h-[calc(100vh-8rem)] flex flex-col">
         <div class="flex-1 flex flex-col min-h-0 px-4 sm:px-6 lg:px-8 py-4 space-y-6 overflow-y-auto">
-            @if ($period->isReview())
-                <div class="flex justify-end shrink-0">
+            <div class="flex justify-end gap-2 shrink-0">
+                <button
+                    type="button"
+                    wire:click="openHistory"
+                    class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium border bg-white text-gray-700 border-gray-300 hover:bg-gray-50 transition"
+                >
+                    <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    History
+                </button>
+                @if ($period->isReview())
                     <button
                         type="button"
                         wire:click="toggleEditing"
@@ -211,8 +242,8 @@ new #[Layout('layouts.app')] class extends Component
                         </svg>
                         {{ $editing ? 'Selesai Edit' : 'Edit' }}
                     </button>
-                </div>
-            @endif
+                @endif
+            </div>
 
             <div class="bg-white shadow-sm rounded-lg p-6">
                 <h3 class="text-lg font-semibold text-gray-900 mb-4">Ringkasan</h3>
@@ -428,4 +459,107 @@ new #[Layout('layouts.app')] class extends Component
             @endif
         </div>
     </div>
+
+    @if ($showHistoryModal)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-600/50 p-4"
+             @keydown.escape.window="$wire.closeHistory()">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden"
+                 @click.stop>
+                <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 shrink-0">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900">History Gaji</h3>
+                        <p class="text-sm text-gray-500 mt-0.5">{{ $entry->employee->full_name }}</p>
+                    </div>
+                    <button type="button" wire:click="closeHistory" class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+
+                <div class="flex-1 overflow-auto px-6 py-4">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50 sticky top-0 z-10">
+                            <tr>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Periode</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tanggal</th>
+                                <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Gaji Pokok</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Tunjangan</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Potongan</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Gaji Bersih</th>
+                                <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Aksi</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200 bg-white">
+                            @forelse ($salaryHistory as $history)
+                                @php
+                                    $historyPeriod = $history->period;
+                                    $isCurrent = $history->id === $entry->id;
+                                @endphp
+                                <tr @class(['bg-indigo-50/40' => $isCurrent])>
+                                    <td class="px-4 py-3 text-sm font-medium text-gray-900 whitespace-nowrap">
+                                        {{ $historyPeriod?->label ?? '—' }}
+                                        @if ($isCurrent)
+                                            <span class="ml-1 text-[10px] font-semibold uppercase text-indigo-600">saat ini</span>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">
+                                        @if ($historyPeriod)
+                                            {{ $historyPeriod->period_start->format('d/m/Y') }} — {{ $historyPeriod->period_end->format('d/m/Y') }}
+                                        @else
+                                            —
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 whitespace-nowrap">
+                                        @if ($historyPeriod?->isDraft())
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">Draft</span>
+                                        @elseif ($historyPeriod?->isReview())
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700">Review</span>
+                                        @elseif ($historyPeriod?->isFinalized())
+                                            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Final</span>
+                                        @else
+                                            <span class="text-sm text-gray-400">—</span>
+                                        @endif
+                                    </td>
+                                    <td class="px-4 py-3 text-sm text-gray-700 text-right tabular-nums whitespace-nowrap">{{ number_format($history->base_salary, 0, ',', '.') }}</td>
+                                    <td class="px-4 py-3 text-sm text-green-600 text-right tabular-nums whitespace-nowrap">+{{ number_format($history->total_allowances + $history->overtime_amount, 0, ',', '.') }}</td>
+                                    <td class="px-4 py-3 text-sm text-red-600 text-right tabular-nums whitespace-nowrap">
+                                        -{{ number_format(
+                                            $history->total_deductions
+                                            + $history->late_penalty
+                                            + $history->absent_penalty
+                                            + $history->early_out_penalty
+                                            + ($history->short_work_penalty ?? 0)
+                                            + ($history->over_break_penalty ?? 0)
+                                            + $history->pph21_amount,
+                                            0, ',', '.'
+                                        ) }}
+                                    </td>
+                                    <td class="px-4 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums whitespace-nowrap">{{ number_format($history->net_salary, 0, ',', '.') }}</td>
+                                    <td class="px-4 py-3 text-right text-sm whitespace-nowrap">
+                                        @if ($historyPeriod && ! $isCurrent)
+                                            <a href="{{ route('payroll.entry', [$historyPeriod, $history]) }}" class="text-blue-600 hover:text-blue-800 font-medium">Lihat</a>
+                                        @else
+                                            <span class="text-gray-400">—</span>
+                                        @endif
+                                    </td>
+                                </tr>
+                            @empty
+                                <tr>
+                                    <td colspan="8" class="px-4 py-10 text-center text-sm text-gray-500">Belum ada history gaji untuk karyawan ini.</td>
+                                </tr>
+                            @endforelse
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="flex justify-end px-6 py-4 border-t border-gray-100 shrink-0 bg-gray-50">
+                    <button type="button" wire:click="closeHistory" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                        Tutup
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>

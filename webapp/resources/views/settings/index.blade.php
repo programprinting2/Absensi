@@ -6,10 +6,19 @@
     @php
         $scheduleErrorKeys = ['clock_in_time', 'clock_out_time', 'break_duration_minutes', 'work_duration_hours', 'late_after_time'];
         $roleErrorKeys = ['home_menu_key', 'menus', 'menus.*', 'email', 'password', 'role', 'employee_id'];
+        $pph21ErrorKeys = ['enable_pph21', 'pph21_method'];
+        $slipErrorKeys = [
+            'slip_paper', 'slip_margin_top_mm', 'slip_margin_right_mm', 'slip_margin_bottom_mm', 'slip_margin_left_mm',
+            'slip_fit_to_width', 'slip_font', 'slip_font_scale', 'slip_width_mm', 'slip_height_mm',
+        ];
         if (request()->routeIs('work-schedule.*') || session('settings_tab') === 'jam-kerja' || $errors->hasAny($scheduleErrorKeys)) {
             $resolvedTab = 'jam-kerja';
         } elseif ($errors->hasAny($roleErrorKeys) || request()->routeIs('settings.roles.*') || request()->routeIs('settings.users.*') || session('settings_tab') === 'hak-akses') {
             $resolvedTab = 'hak-akses';
+        } elseif ($errors->hasAny($pph21ErrorKeys) || session('settings_tab') === 'pph21') {
+            $resolvedTab = 'pph21';
+        } elseif ($errors->hasAny($slipErrorKeys) || session('settings_tab') === 'slip') {
+            $resolvedTab = 'slip';
         } elseif ($errors->any() && ! request()->isMethod('get')) {
             $resolvedTab = session('settings_tab', 'identitas');
         } else {
@@ -78,6 +87,28 @@
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
                             </svg>
                             Hak Akses
+                        </button>
+                        <button type="button"
+                                @click="activeTab = 'pph21'"
+                                :class="activeTab === 'pph21'
+                                    ? 'border-[#f7340d] text-[#f7340d]'
+                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                class="inline-flex items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 transition-colors">
+                            <svg class="w-[16px] h-[16px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+                            </svg>
+                            PPh 21
+                        </button>
+                        <button type="button"
+                                @click="activeTab = 'slip'"
+                                :class="activeTab === 'slip'
+                                    ? 'border-[#f7340d] text-[#f7340d]'
+                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                class="inline-flex items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 transition-colors">
+                            <svg class="w-[16px] h-[16px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                            </svg>
+                            Cetak Slip
                         </button>
                         <a href="{{ route('tools.database') }}"
                            @class([
@@ -309,6 +340,11 @@
                     <div x-show="activeTab === 'hak-akses'" x-cloak class="flex-1 overflow-y-auto p-6">
                         @include('settings._role-access')
                     </div>
+
+                    {{-- Tab: PPh 21 --}}
+                    @include('settings._pph21')
+
+                    @include('settings._slip-print')
                 </div>
             </div>
         </div>

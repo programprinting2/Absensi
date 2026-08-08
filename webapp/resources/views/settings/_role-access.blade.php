@@ -53,7 +53,6 @@
             <thead class="bg-white text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 <tr>
                     <th class="px-4 py-2.5">Nama</th>
-                    <th class="px-4 py-2.5">Email</th>
                     <th class="px-4 py-2.5">Role</th>
                     <th class="px-4 py-2.5 text-right">Aksi</th>
                 </tr>
@@ -61,13 +60,15 @@
             <tbody class="divide-y divide-gray-100">
                 @forelse ($accessUsers as $accessUser)
                     <tr wire:key="access-user-{{ $accessUser->id }}">
-                        <td class="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">
-                            {{ $accessUser->name }}
-                            @if ($accessUser->id === auth()->id())
-                                <span class="text-xs text-gray-400">(anda)</span>
-                            @endif
+                        <td class="px-4 py-3 whitespace-nowrap">
+                            <div class="font-medium text-gray-900">
+                                {{ $accessUser->name }}
+                                @if ($accessUser->id === auth()->id())
+                                    <span class="text-xs font-normal text-gray-400">(anda)</span>
+                                @endif
+                            </div>
+                            <div class="mt-0.5 text-xs text-gray-500">{{ $accessUser->email }}</div>
                         </td>
-                        <td class="px-4 py-3 text-gray-600">{{ $accessUser->email }}</td>
                         <td class="px-4 py-3">
                             <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
                                 {{ $roleNames[$accessUser->role] ?? $accessUser->role }}
@@ -110,7 +111,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="4" class="px-4 py-8 text-center text-gray-500">Belum ada user.</td>
+                        <td colspan="3" class="px-4 py-8 text-center text-gray-500">Belum ada user.</td>
                     </tr>
                 @endforelse
             </tbody>

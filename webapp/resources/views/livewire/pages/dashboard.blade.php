@@ -1,9 +1,11 @@
 <?php
 
+use App\Models\AttendanceDayReason;
 use App\Models\Employee;
 use App\Models\WorkSchedule;
 use App\Support\AppTimezone;
 use App\Services\AttendanceReportService;
+use Illuminate\Support\Carbon;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 
@@ -33,12 +35,44 @@ new #[Layout('layouts.app')] class extends Component
             $rangeEnd,
         );
 
+        $monthStart = Carbon::create($year, $month, 1, 0, 0, 0, AppTimezone::display())->toDateString();
+        $monthEnd = Carbon::create($year, $month, 1, 0, 0, 0, AppTimezone::display())->endOfMonth()->toDateString();
+
+        $reasonsByKey = AttendanceDayReason::query()
+            ->whereIn('employee_id', $employees->pluck('id'))
+            ->whereBetween('work_date', [$monthStart, $monthEnd])
+            ->get()
+            ->keyBy(fn (AttendanceDayReason $r) => $r->employee_id.'|'.$r->work_date->toDateString());
+
         $fmtHm = function (int $minutes): string {
             $total = abs($minutes);
             $hours = intdiv($total, 60);
             $remain = $total % 60;
 
             return "{$hours} : {$remain}";
+        };
+
+        $formatReason = function (?AttendanceDayReason $reason): ?array {
+            if (! $reason || ! $reason->hasAnyReason()) {
+                return null;
+            }
+
+            $lines = [];
+            if (filled($reason->day_reason)) {
+                $lines[] = $reason->day_reason;
+            }
+            foreach ([
+                'Masuk' => $reason->clock_in_reason,
+                'Istirahat' => $reason->break_start_reason,
+                'Kembali' => $reason->break_end_reason,
+                'Pulang' => $reason->clock_out_reason,
+            ] as $label => $text) {
+                if (filled($text)) {
+                    $lines[] = "{$label}: {$text}";
+                }
+            }
+
+            return $lines !== [] ? $lines : null;
         };
 
         $buildStats = function ($group) {
@@ -62,12 +96,19 @@ new #[Layout('layouts.app')] class extends Component
 
         $detailGroups = $rows
             ->groupBy(fn ($r) => $r['employee']->id)
-            ->map(function ($group) use ($buildStats) {
+            ->map(function ($group) use ($buildStats, $reasonsByKey, $formatReason) {
                 $employee = $group->first()['employee'];
+
+                $detailRows = $group->sortByDesc('date')->values()->map(function (array $row) use ($employee, $reasonsByKey, $formatReason) {
+                    $key = $employee->id.'|'.($row['date'] ?? '');
+                    $row['reason_lines'] = $formatReason($reasonsByKey->get($key));
+
+                    return $row;
+                });
 
                 return [
                     'employee' => $employee,
-                    'rows' => $group->sortByDesc('date')->values(),
+                    'rows' => $detailRows,
                     'stats' => $buildStats($group),
                 ];
             })
@@ -92,9 +133,9 @@ new #[Layout('layouts.app')] class extends Component
         </div>
     </x-slot>
 
-    <div class="py-6" wire:poll.60s.visible>
-        <div class="max-w-6xl mx-auto sm:px-6 lg:px-8 space-y-4">
-            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+    <div class="h-[calc(100vh-8rem)] flex flex-col" wire:poll.60s.visible>
+        <div class="flex-1 flex flex-col min-h-0 px-4 sm:px-6 lg:px-8 py-4 space-y-4 overflow-y-auto">
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
                 <div class="bg-white shadow-sm rounded-lg p-4">
                     <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Hari kerja</p>
                     <p class="mt-1 text-2xl font-semibold text-gray-800">{{ $summary['total'] }}</p>
@@ -113,7 +154,7 @@ new #[Layout('layouts.app')] class extends Component
                 </div>
             </div>
 
-            <div class="flex flex-wrap items-center gap-1.5">
+            <div class="flex flex-wrap items-center gap-1.5 shrink-0">
                 <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $summary['terlambat'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
                     Telat {{ $summary['terlambat'] }}@if ($summary['menit_terlambat'] > 0)<span class="opacity-70"> ({{ ($fmtHm)($summary['menit_terlambat']) }})</span>@endif
                 </span>
@@ -177,6 +218,7 @@ new #[Layout('layouts.app')] class extends Component
                                             <th class="px-6 py-2.5">Kembali</th>
                                             <th class="px-6 py-2.5">Pulang</th>
                                             <th class="px-6 py-2.5">Status</th>
+                                            <th class="px-6 py-2.5">Alasan</th>
                                         </tr>
                                     </thead>
                                     <tbody class="divide-y divide-gray-100 bg-white">
@@ -189,6 +231,17 @@ new #[Layout('layouts.app')] class extends Component
                                                 <td class="px-6 py-3 whitespace-nowrap tabular-nums {{ !empty($row['is_early_out']) || !empty($row['is_short_work']) ? 'text-red-600 font-medium' : 'text-gray-700' }}">{{ $row['clock_out'] ?? '—' }}</td>
                                                 <td class="px-6 py-3 align-top">
                                                     <x-attendance-status :parts="$row['status_parts'] ?? []" :fallback-status="$row['status']" />
+                                                </td>
+                                                <td class="px-6 py-3 align-top max-w-xs">
+                                                    @if (! empty($row['reason_lines']))
+                                                        <div class="space-y-0.5 text-xs text-gray-700">
+                                                            @foreach ($row['reason_lines'] as $i => $line)
+                                                                <p @class(['font-medium text-gray-800' => $i === 0, 'text-gray-500' => $i > 0])>{{ $line }}</p>
+                                                            @endforeach
+                                                        </div>
+                                                    @else
+                                                        <span class="text-gray-400">—</span>
+                                                    @endif
                                                 </td>
                                             </tr>
                                         @endforeach

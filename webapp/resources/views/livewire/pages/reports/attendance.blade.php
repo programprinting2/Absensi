@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\AttendanceDayReason;
 use App\Models\AttendanceLog;
 use App\Models\Device;
 use App\Models\Employee;
@@ -250,6 +251,49 @@ new #[Layout('layouts.app')] class extends Component
             $rangeEnd,
         );
 
+        $reasonDateStart = $rangeStart->copy()->timezone(AppTimezone::display())->toDateString();
+        $reasonDateEnd = $rangeEnd->copy()->timezone(AppTimezone::display())->toDateString();
+
+        $reasonsByKey = $employeesForAbsence->isEmpty()
+            ? collect()
+            : AttendanceDayReason::query()
+                ->whereIn('employee_id', $employeesForAbsence->pluck('id'))
+                ->whereBetween('work_date', [$reasonDateStart, $reasonDateEnd])
+                ->get()
+                ->keyBy(fn (AttendanceDayReason $r) => $r->employee_id.'|'.$r->work_date->toDateString());
+
+        $formatReason = function (?AttendanceDayReason $reason): ?array {
+            if (! $reason || ! $reason->hasAnyReason()) {
+                return null;
+            }
+
+            $lines = [];
+            if (filled($reason->day_reason)) {
+                $lines[] = $reason->day_reason;
+            }
+            foreach ([
+                'Masuk' => $reason->clock_in_reason,
+                'Istirahat' => $reason->break_start_reason,
+                'Kembali' => $reason->break_end_reason,
+                'Pulang' => $reason->clock_out_reason,
+            ] as $label => $text) {
+                if (filled($text)) {
+                    $lines[] = "{$label}: {$text}";
+                }
+            }
+
+            return $lines !== [] ? $lines : null;
+        };
+
+        $attachReasons = function ($groupRows) use ($reasonsByKey, $formatReason) {
+            return $groupRows->map(function (array $row) use ($reasonsByKey, $formatReason) {
+                $key = ($row['employee']->id ?? '').'|'.($row['date'] ?? '');
+                $row['reason_lines'] = $formatReason($reasonsByKey->get($key));
+
+                return $row;
+            });
+        };
+
         $summary = [
             'total' => $rows->count(),
             'ok' => $rows->where('compliance_ok', true)->count(),
@@ -294,12 +338,12 @@ new #[Layout('layouts.app')] class extends Component
         $detailGroups = $groupDetailByEmployee
             ? $rows
                 ->groupBy(fn ($r) => $r['employee']->id)
-                ->map(function ($group) {
+                ->map(function ($group) use ($attachReasons) {
                     $employee = $group->first()['employee'];
 
                     return [
                         'employee' => $employee,
-                        'rows' => $group->sortByDesc('date')->values(),
+                        'rows' => $attachReasons($group->sortByDesc('date')->values()),
                         'stats' => [
                             'total' => $group->count(),
                             'ok' => $group->where('compliance_ok', true)->count(),
@@ -320,7 +364,7 @@ new #[Layout('layouts.app')] class extends Component
                 ->values()
             : collect([[
                 'employee' => null,
-                'rows' => $rows->sortByDesc('date')->values(),
+                'rows' => $attachReasons($rows->sortByDesc('date')->values()),
                 'stats' => null,
             ]]);
 
@@ -440,42 +484,78 @@ new #[Layout('layouts.app')] class extends Component
             </div>
 
             @if ($mainTab === 'rekap')
-                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 shrink-0">
-                    <div class="bg-white shadow-sm rounded-lg px-4 py-3">
-                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Total baris</p>
-                        <p class="mt-1 text-xl font-semibold text-gray-900">{{ $summary['total'] }}</p>
-                    </div>
-                    <div class="bg-white shadow-sm rounded-lg px-4 py-3">
-                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">OK</p>
-                        <p class="mt-1 text-xl font-semibold text-green-700">{{ $summary['ok'] }}</p>
-                    </div>
-                    <div class="bg-white shadow-sm rounded-lg px-4 py-3">
-                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Not OK</p>
-                        <p class="mt-1 text-xl font-semibold text-red-700">{{ $summary['not_ok'] }}</p>
-                    </div>
-                    <div class="bg-white shadow-sm rounded-lg px-4 py-3">
-                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Tidak masuk</p>
-                        <p class="mt-1 text-xl font-semibold text-gray-600">{{ $summary['tidak_masuk'] }}</p>
-                    </div>
-                    <div class="bg-white shadow-sm rounded-lg px-4 py-3">
-                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Terlambat</p>
-                        <p class="mt-1 text-xl font-semibold text-red-700">{{ $summary['terlambat'] }}</p>
-                        <x-minutes-hm :minutes="$summary['menit_terlambat']" suffix=" total" class="text-xs text-gray-500 mt-0.5" />
-                    </div>
-                    <div class="bg-white shadow-sm rounded-lg px-4 py-3">
-                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Istirahat lebih</p>
-                        <p class="mt-1 text-xl font-semibold text-red-700">{{ $summary['istirahat_lebih'] }}</p>
-                        <x-minutes-hm :minutes="$summary['menit_istirahat_lebih']" suffix=" total" class="text-xs text-gray-500 mt-0.5" />
-                    </div>
-                    <div class="bg-white shadow-sm rounded-lg px-4 py-3">
-                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Pulang awal</p>
-                        <p class="mt-1 text-xl font-semibold text-red-700">{{ $summary['pulang_awal'] }}</p>
-                        <x-minutes-hm :minutes="$summary['menit_pulang_awal']" suffix=" total" class="text-xs text-gray-500 mt-0.5" />
-                    </div>
-                    <div class="bg-white shadow-sm rounded-lg px-4 py-3">
-                        <p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Jam kerja kurang</p>
-                        <p class="mt-1 text-xl font-semibold text-red-700">{{ $summary['jam_kerja_kurang'] }}</p>
-                        <x-minutes-hm :minutes="$summary['menit_jam_kerja_kurang']" suffix=" total" class="text-xs text-gray-500 mt-0.5" />
+                @php
+                    $fmtDur = function (int $minutes): string {
+                        $total = abs($minutes);
+                        if ($total <= 0) {
+                            return '';
+                        }
+                        $hours = intdiv($total, 60);
+                        $mins = $total % 60;
+                        if ($hours > 25) {
+                            $days = intdiv($hours, 24);
+                            $hours = $hours % 24;
+
+                            return "{$days}d {$hours}h {$mins}m";
+                        }
+
+                        return "{$hours}h {$mins}m";
+                    };
+                @endphp
+                <div class="bg-white border border-gray-200 rounded-lg shrink-0 overflow-hidden">
+                    <div class="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-8 divide-x divide-y xl:divide-y-0 divide-gray-100">
+                        <div class="px-3 py-2 min-w-0">
+                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Total</p>
+                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-gray-900">{{ $summary['total'] }}</p>
+                        </div>
+                        <div class="px-3 py-2 min-w-0">
+                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">OK</p>
+                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-green-700">{{ $summary['ok'] }}</p>
+                        </div>
+                        <div class="px-3 py-2 min-w-0">
+                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Not OK</p>
+                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">{{ $summary['not_ok'] }}</p>
+                        </div>
+                        <div class="px-3 py-2 min-w-0">
+                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Tidak masuk</p>
+                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-gray-800">{{ $summary['tidak_masuk'] }}</p>
+                        </div>
+                        <div class="px-3 py-2 min-w-0">
+                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Terlambat</p>
+                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">
+                                {{ $summary['terlambat'] }}
+                                @if ($summary['menit_terlambat'] > 0)
+                                    <span class="font-normal text-gray-500">· {{ $fmtDur($summary['menit_terlambat']) }}</span>
+                                @endif
+                            </p>
+                        </div>
+                        <div class="px-3 py-2 min-w-0">
+                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Istirahat+</p>
+                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-amber-800">
+                                {{ $summary['istirahat_lebih'] }}
+                                @if ($summary['menit_istirahat_lebih'] > 0)
+                                    <span class="font-normal text-gray-500">· {{ $fmtDur($summary['menit_istirahat_lebih']) }}</span>
+                                @endif
+                            </p>
+                        </div>
+                        <div class="px-3 py-2 min-w-0">
+                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Pulang awal</p>
+                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">
+                                {{ $summary['pulang_awal'] }}
+                                @if ($summary['menit_pulang_awal'] > 0)
+                                    <span class="font-normal text-gray-500">· {{ $fmtDur($summary['menit_pulang_awal']) }}</span>
+                                @endif
+                            </p>
+                        </div>
+                        <div class="px-3 py-2 min-w-0">
+                            <p class="text-[10px] font-medium uppercase tracking-wider text-gray-500">Jam kurang</p>
+                            <p class="mt-0.5 text-sm font-semibold tabular-nums text-red-700">
+                                {{ $summary['jam_kerja_kurang'] }}
+                                @if ($summary['menit_jam_kerja_kurang'] > 0)
+                                    <span class="font-normal text-gray-500">· {{ $fmtDur($summary['menit_jam_kerja_kurang']) }}</span>
+                                @endif
+                            </p>
+                        </div>
                     </div>
                 </div>
 
@@ -573,44 +653,56 @@ new #[Layout('layouts.app')] class extends Component
                                                     $days = intdiv($hours, 24);
                                                     $hours = $hours % 24;
 
-                                                    return "{$days} d, {$hours} h : {$remain} m";
+                                                    return "{$days}d {$hours}h {$remain}m";
                                                 }
 
-                                                return "{$hours} h : {$remain} m";
+                                                return "{$hours}h {$remain}m";
                                             };
                                         @endphp
-                                        <div class="flex items-center justify-between gap-3">
-                                            <div class="flex items-center gap-3 min-w-0">
-                                                <svg class="h-4 w-4 text-gray-500 shrink-0 transition-transform" :class="open['{{ $gid }}'] ? 'rotate-90' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                                    <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
-                                                </svg>
-                                                <span class="text-sm font-semibold text-gray-900 truncate">{{ $group['employee']->full_name }}</span>
-                                                <span class="text-xs text-gray-400 shrink-0">{{ $s['total'] }} hari</span>
+                                        <div class="flex items-center gap-3 min-w-0">
+                                            <svg class="h-4 w-4 text-gray-500 shrink-0 transition-transform" :class="open['{{ $gid }}'] ? 'rotate-90' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
+                                            </svg>
+                                            <span class="text-sm font-semibold text-gray-900 truncate">{{ $group['employee']->full_name }}</span>
+                                            <span class="text-xs text-gray-400 shrink-0">{{ $s['total'] }} hari</span>
+                                            <span class="hidden sm:inline text-gray-300 shrink-0">·</span>
+                                            <div class="hidden sm:flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0 text-[11px] tabular-nums">
+                                                <span class="text-green-700">OK <span class="font-semibold">{{ $s['ok'] }}</span></span>
+                                                <span class="{{ $s['not_ok'] > 0 ? 'text-red-700' : 'text-gray-500' }}">Not OK <span class="font-semibold">{{ $s['not_ok'] }}</span></span>
+                                                @if ($s['tidak_masuk'] > 0)
+                                                    <span class="text-red-700">Absen <span class="font-semibold">{{ $s['tidak_masuk'] }}</span></span>
+                                                @endif
+                                                <span class="{{ $s['terlambat'] > 0 ? 'text-red-700' : 'text-gray-500' }}">
+                                                    Telat <span class="font-semibold">{{ $s['terlambat'] }}</span>@if ($s['menit_terlambat'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_terlambat']) }})</span>@endif
+                                                </span>
+                                                <span class="{{ $s['istirahat_lebih'] > 0 ? 'text-amber-800' : 'text-gray-500' }}">
+                                                    Istirahat+ <span class="font-semibold">{{ $s['istirahat_lebih'] }}</span>@if ($s['menit_istirahat_lebih'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_istirahat_lebih']) }})</span>@endif
+                                                </span>
+                                                <span class="{{ $s['pulang_awal'] > 0 ? 'text-red-700' : 'text-gray-500' }}">
+                                                    Pulang awal <span class="font-semibold">{{ $s['pulang_awal'] }}</span>@if ($s['menit_pulang_awal'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_pulang_awal']) }})</span>@endif
+                                                </span>
+                                                <span class="{{ $s['jam_kerja_kurang'] > 0 ? 'text-red-700' : 'text-gray-500' }}">
+                                                    Jam kurang <span class="font-semibold">{{ $s['jam_kerja_kurang'] }}</span>@if ($s['menit_jam_kerja_kurang'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_jam_kerja_kurang']) }})</span>@endif
+                                                </span>
                                             </div>
                                         </div>
-                                        <div class="mt-1.5 ml-7 flex flex-wrap items-center gap-1.5">
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                                OK {{ $s['ok'] }}
-                                            </span>
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['not_ok'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                                                Not OK {{ $s['not_ok'] }}
-                                            </span>
+                                        <div class="mt-1.5 ml-7 flex flex-wrap items-center gap-x-2 gap-y-0.5 sm:hidden text-[11px] tabular-nums">
+                                            <span class="text-green-700">OK <span class="font-semibold">{{ $s['ok'] }}</span></span>
+                                            <span class="{{ $s['not_ok'] > 0 ? 'text-red-700' : 'text-gray-500' }}">Not OK <span class="font-semibold">{{ $s['not_ok'] }}</span></span>
                                             @if ($s['tidak_masuk'] > 0)
-                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700">
-                                                    Absen {{ $s['tidak_masuk'] }}
-                                                </span>
+                                                <span class="text-red-700">Absen <span class="font-semibold">{{ $s['tidak_masuk'] }}</span></span>
                                             @endif
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['terlambat'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                                                Telat {{ $s['terlambat'] }}@if ($s['menit_terlambat'] > 0)<span class="opacity-70"> ({{ $fmtHm($s['menit_terlambat']) }})</span>@endif
+                                            <span class="{{ $s['terlambat'] > 0 ? 'text-red-700' : 'text-gray-500' }}">
+                                                Telat <span class="font-semibold">{{ $s['terlambat'] }}</span>@if ($s['menit_terlambat'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_terlambat']) }})</span>@endif
                                             </span>
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['istirahat_lebih'] > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600' }}">
-                                                Istirahat+ {{ $s['istirahat_lebih'] }}@if ($s['menit_istirahat_lebih'] > 0)<span class="opacity-70"> ({{ $fmtHm($s['menit_istirahat_lebih']) }})</span>@endif
+                                            <span class="{{ $s['istirahat_lebih'] > 0 ? 'text-amber-800' : 'text-gray-500' }}">
+                                                Istirahat+ <span class="font-semibold">{{ $s['istirahat_lebih'] }}</span>@if ($s['menit_istirahat_lebih'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_istirahat_lebih']) }})</span>@endif
                                             </span>
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['pulang_awal'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                                                Pulang awal {{ $s['pulang_awal'] }}@if ($s['menit_pulang_awal'] > 0)<span class="opacity-70"> ({{ $fmtHm($s['menit_pulang_awal']) }})</span>@endif
+                                            <span class="{{ $s['pulang_awal'] > 0 ? 'text-red-700' : 'text-gray-500' }}">
+                                                Pulang awal <span class="font-semibold">{{ $s['pulang_awal'] }}</span>@if ($s['menit_pulang_awal'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_pulang_awal']) }})</span>@endif
                                             </span>
-                                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $s['jam_kerja_kurang'] > 0 ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-600' }}">
-                                                Jam kurang {{ $s['jam_kerja_kurang'] }}@if ($s['menit_jam_kerja_kurang'] > 0)<span class="opacity-70"> ({{ $fmtHm($s['menit_jam_kerja_kurang']) }})</span>@endif
+                                            <span class="{{ $s['jam_kerja_kurang'] > 0 ? 'text-red-700' : 'text-gray-500' }}">
+                                                Jam kurang <span class="font-semibold">{{ $s['jam_kerja_kurang'] }}</span>@if ($s['menit_jam_kerja_kurang'] > 0)<span class="text-gray-400"> ({{ $fmtHm($s['menit_jam_kerja_kurang']) }})</span>@endif
                                             </span>
                                         </div>
                                     </button>
@@ -626,6 +718,7 @@ new #[Layout('layouts.app')] class extends Component
                                                         <th class="px-6 py-2.5">Kembali</th>
                                                         <th class="px-6 py-2.5">Pulang</th>
                                                         <th class="px-6 py-2.5">Status</th>
+                                                        <th class="px-6 py-2.5">Alasan</th>
                                                         <th class="px-6 py-2.5 text-right">Action</th>
                                                     </tr>
                                                 </thead>
@@ -671,13 +764,14 @@ new #[Layout('layouts.app')] class extends Component
                                         <th class="px-6 py-3">Kembali</th>
                                         <th class="px-6 py-3">Pulang</th>
                                         <th class="px-6 py-3">Status</th>
+                                        <th class="px-6 py-3">Alasan</th>
                                         <th class="px-6 py-3 text-right">Action</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-100 bg-white">
                                     @unless ($hasAnyDetailRow)
                                         <tr>
-                                            <td colspan="8" class="px-6 py-6 text-center text-gray-500">
+                                            <td colspan="9" class="px-6 py-6 text-center text-gray-500">
                                                 Tidak ada data absensi pada rentang ini.
                                             </td>
                                         </tr>

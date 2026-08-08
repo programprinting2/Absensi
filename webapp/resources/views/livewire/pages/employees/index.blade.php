@@ -2,6 +2,7 @@
 
 use App\Models\Device;
 use App\Models\Employee;
+use App\Models\User;
 use App\Services\ParameterService;
 use App\Support\Toast;
 use Livewire\Attributes\Layout;
@@ -166,6 +167,45 @@ new #[Layout('layouts.app')] class extends Component
         Toast::success('Karyawan berhasil dihapus.', $this);
     }
 
+    public function resetPassword(): void
+    {
+        if (! $this->editingEmployeeId) {
+            return;
+        }
+
+        $employee = Employee::with('portalUser')->findOrFail($this->editingEmployeeId);
+        $user = $employee->portalUser;
+
+        if (! $user) {
+            $user = User::query()
+                ->whereRaw('LOWER(TRIM(name)) = ?', [mb_strtolower(trim($employee->full_name))])
+                ->orderByRaw("CASE WHEN role = ? THEN 0 ELSE 1 END", [User::ROLE_EMPLOYEE])
+                ->first();
+        }
+
+        if (! $user) {
+            Toast::error('Karyawan belum punya akun login.', $this);
+
+            return;
+        }
+
+        if (blank($user->employee_id)) {
+            $taken = User::query()
+                ->where('employee_id', $employee->id)
+                ->where('id', '!=', $user->id)
+                ->exists();
+
+            if (! $taken) {
+                $user->employee_id = $employee->id;
+            }
+        }
+
+        $user->password = '123456';
+        $user->save();
+
+        Toast::success('Password direset ke 123456.', $this);
+    }
+
     public function enrollFingerprint(string $deviceId): void
     {
         if (! $this->editingEmployeeId) return;
@@ -233,11 +273,26 @@ new #[Layout('layouts.app')] class extends Component
     {
         $groups = ParameterService::optionGroups(['JABATAN', 'DEPARTEMEN', 'STATUS PTKP', 'BANK']);
 
+        $employees = Employee::query()
+            ->with(['portalUser:id,employee_id,name,email'])
+            ->withCount('fingerprintTemplates')
+            ->orderBy('employee_code', 'desc')
+            ->paginate(20);
+
+        // Fallback: email akun sistem yang namanya sama (jika portal belum ter-link employee_id).
+        $userEmailsByName = User::query()
+            ->whereNotNull('email')
+            ->where('email', '!=', '')
+            ->get(['name', 'email'])
+            ->mapWithKeys(function (User $user) {
+                $key = mb_strtolower(trim((string) $user->name));
+
+                return $key !== '' ? [$key => $user->email] : [];
+            });
+
         $data = [
-            'employees' => Employee::query()
-                ->withCount('fingerprintTemplates')
-                ->orderBy('employee_code', 'desc')
-                ->paginate(20),
+            'employees' => $employees,
+            'userEmailsByName' => $userEmailsByName,
             'jabatanOptions' => $groups['JABATAN']['options'],
             'departemenOptions' => $groups['DEPARTEMEN']['options'],
             'ptkpOptions' => $groups['STATUS PTKP']['options'],
@@ -250,6 +305,7 @@ new #[Layout('layouts.app')] class extends Component
 
         if ($this->showModal && $this->editingEmployeeId) {
             $data['editingEmployee'] = Employee::with([
+                'portalUser:id,employee_id,name,email',
                 'fingerprintTemplates' => fn ($q) => $q->with('device:id,name'),
                 'salaries',
                 'activeSalary',
@@ -309,7 +365,16 @@ new #[Layout('layouts.app')] class extends Component
                             @forelse ($employees as $employee)
                                 <tr wire:key="employee-{{ $employee->id }}" class="hover:bg-gray-50">
                                     <td class="px-6 py-3 whitespace-nowrap text-gray-700">{{ $employee->employee_code }}</td>
-                                    <td class="px-6 py-3 whitespace-nowrap font-medium text-gray-900">{{ $employee->full_name }}</td>
+                                    <td class="px-6 py-3 whitespace-nowrap">
+                                        @php
+                                            $accountEmail = $employee->portalUser?->email
+                                                ?: ($userEmailsByName[mb_strtolower(trim($employee->full_name))] ?? null);
+                                        @endphp
+                                        <div class="font-medium text-gray-900">{{ $employee->full_name }}</div>
+                                        @if ($accountEmail)
+                                            <div class="mt-0.5 text-xs text-gray-500">{{ $accountEmail }}</div>
+                                        @endif
+                                    </td>
                                     <td class="px-6 py-3 whitespace-nowrap text-gray-500">{{ $employee->position ?? '-' }}</td>
                                     <td class="px-6 py-3 whitespace-nowrap text-gray-500">{{ $employee->department ?? '-' }}</td>
                                     <td class="px-6 py-3 whitespace-nowrap text-gray-500">
@@ -487,6 +552,27 @@ new #[Layout('layouts.app')] class extends Component
                                 <div class="flex items-center gap-2">
                                     <input wire:model="is_active" id="is_active" type="checkbox" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
                                     <label for="is_active" class="text-sm font-medium text-gray-700">Aktif</label>
+                                </div>
+
+                                <div class="pt-4 mt-2 border-t border-gray-100">
+                                    <p class="text-sm font-medium text-gray-800">Akun login</p>
+                                    @php
+                                        $editAccountEmail = $editingEmployee?->portalUser?->email
+                                            ?? ($userEmailsByName[mb_strtolower(trim($full_name))] ?? null);
+                                    @endphp
+                                    @if ($editAccountEmail)
+                                        <p class="mt-0.5 text-xs text-gray-500">{{ $editAccountEmail }} · reset ke <span class="font-mono">123456</span></p>
+                                    @else
+                                        <p class="mt-0.5 text-xs text-gray-500">Reset password akun ke default <span class="font-mono">123456</span>.</p>
+                                    @endif
+                                    <button
+                                        type="button"
+                                        wire:click="resetPassword"
+                                        wire:confirm="Reset password akun login ke 123456?"
+                                        class="mt-3 inline-flex items-center px-3 py-2 rounded-md border border-gray-300 bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                    >
+                                        Reset Password
+                                    </button>
                                 </div>
                                 @endif
                             </div>

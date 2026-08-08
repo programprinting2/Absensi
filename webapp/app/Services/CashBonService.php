@@ -256,6 +256,37 @@ class CashBonService
         }
     }
 
+    /**
+     * Buka finalisasi periode: paid (dari periode ini) → deducted kembali.
+     */
+    public function unfinalizeForPeriod(PayrollPeriod $period): void
+    {
+        $entryIds = $period->entries()->pluck('id');
+
+        if ($entryIds->isEmpty()) {
+            return;
+        }
+
+        $installments = CashBonInstallment::query()
+            ->whereIn('payroll_entry_id', $entryIds)
+            ->where('status', 'paid')
+            ->with('cashBon')
+            ->get();
+
+        foreach ($installments as $installment) {
+            $installment->update([
+                'status' => 'deducted',
+                'paid_at' => null,
+            ]);
+
+            if ($installment->cashBon && $installment->cashBon->status === 'paid') {
+                $installment->cashBon->update(['status' => 'active']);
+            }
+
+            $installment->cashBon?->refreshRemaining();
+        }
+    }
+
     public function cancel(CashBon $cashBon): void
     {
         if ($cashBon->installments()->where('status', 'paid')->exists()) {
