@@ -7,6 +7,7 @@
         ['label' => 'Hak Akses', 'url' => route('settings.index', ['tab' => 'hak-akses']), 'active' => false],
         ['label' => 'PPh 21', 'url' => route('settings.index', ['tab' => 'pph21']), 'active' => false],
         ['label' => 'Cetak Slip', 'url' => route('settings.index', ['tab' => 'slip']), 'active' => false],
+        ['label' => 'Log Aktivitas', 'url' => route('settings.index', ['tab' => 'log-aktivitas']), 'active' => false],
         ['label' => 'Database', 'url' => route('tools.database'), 'active' => request()->routeIs('tools.database*', 'tools.google-drive*')],
     ];
 @endphp

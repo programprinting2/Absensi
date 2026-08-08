@@ -110,6 +110,17 @@
                             </svg>
                             Cetak Slip
                         </button>
+                        <button type="button"
+                                @click="activeTab = 'log-aktivitas'"
+                                :class="activeTab === 'log-aktivitas'
+                                    ? 'border-[#f7340d] text-[#f7340d]'
+                                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                class="inline-flex items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 transition-colors">
+                            <svg class="w-[16px] h-[16px]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            Log Aktivitas
+                        </button>
                         <a href="{{ route('tools.database') }}"
                            @class([
                                'no-underline inline-flex items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 transition-colors',
@@ -339,6 +350,11 @@
                     @include('settings._pph21')
 
                     @include('settings._slip-print')
+
+                    {{-- Tab: Log Aktivitas --}}
+                    <div x-show="activeTab === 'log-aktivitas'" x-cloak class="flex-1 min-h-0 overflow-hidden p-6 flex flex-col">
+                        <livewire:settings.activity-logs />
+                    </div>
                 </div>
             </div>
         </div>

@@ -101,7 +101,23 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         return [
-            'items' => $payload['items'],
+            'groups' => collect($payload['items'])
+                ->groupBy(fn ($item) => $item['employee']['id'] ?? 'unknown')
+                ->map(function ($bons) {
+                    $employee = $bons->first()['employee'] ?? ['id' => null, 'full_name' => '-', 'employee_code' => '-'];
+                    $sorted = $bons->sortByDesc('disbursed_at')->values();
+
+                    return [
+                        'employee' => $employee,
+                        'bons' => $sorted->all(),
+                        'bon_count' => $sorted->count(),
+                        'remaining_total' => (float) $sorted->sum('remaining_amount'),
+                        'has_active' => $sorted->contains(fn ($b) => ($b['status'] ?? '') === 'active'),
+                    ];
+                })
+                ->sortBy(fn ($g) => mb_strtolower($g['employee']['full_name'] ?? ''))
+                ->values()
+                ->all(),
             'activeRemaining' => $payload['active_remaining'],
             'activeCount' => $payload['active_count'],
             'selectedEmployeeRemaining' => $selectedEmployeeRemaining,
@@ -149,76 +165,97 @@ new #[Layout('layouts.app')] class extends Component
             </div>
 
             <div class="flex-1 min-h-0 overflow-y-auto space-y-2" x-data="{ open: {} }">
-                @forelse ($items as $item)
-                    @php
-                        $bid = $item['id'];
-                        $badge = match ($item['status']) {
-                            'active' => 'bg-blue-50 text-blue-700',
-                            'paid' => 'bg-green-50 text-green-700',
-                            default => 'bg-gray-100 text-gray-600',
-                        };
-                    @endphp
-                    <div wire:key="cashbon-{{ $bid }}" class="bg-white shadow-sm rounded-lg overflow-hidden border border-gray-100">
-                        <div class="flex items-stretch">
-                            <button
-                                type="button"
-                                class="flex-1 min-w-0 text-left hover:bg-gray-50 transition px-4 py-3"
-                                @click="open['{{ $bid }}'] = !open['{{ $bid }}']"
-                                :aria-expanded="!!open['{{ $bid }}']"
-                            >
-                                <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
-                                    <div class="flex items-center gap-2 min-w-0">
-                                        <svg class="h-4 w-4 text-gray-500 shrink-0 transition-transform" :class="open['{{ $bid }}'] ? 'rotate-90' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-                                            <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
-                                        </svg>
-                                        <div class="min-w-0">
-                                            <p class="text-sm font-semibold text-gray-900 truncate">{{ $item['employee']['full_name'] ?? '-' }}</p>
-                                            <p class="text-xs text-gray-500">ID {{ $item['employee']['employee_code'] ?? '-' }}</p>
-                                        </div>
-                                    </div>
-                                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm ml-auto">
-                                        <span class="font-semibold text-gray-900 tabular-nums">{{ $item['amount_label'] }}</span>
-                                        <span class="text-gray-600 tabular-nums">{{ $item['installment_count'] }}x · {{ $item['installment_amount_label'] }}</span>
-                                        <span class="text-gray-600 tabular-nums">Sisa {{ $item['remaining_amount_label'] }}</span>
-                                        <span class="text-gray-500">{{ $item['disbursed_at_label'] }}</span>
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $badge }}">{{ $item['status_label'] }}</span>
+                @forelse ($groups as $group)
+                    @php $gid = $group['employee']['id'] ?? 'unknown'; @endphp
+                    <div wire:key="cashbon-emp-{{ $gid }}" class="bg-white shadow-sm rounded-lg overflow-hidden border border-gray-100">
+                        <button
+                            type="button"
+                            class="w-full text-left hover:bg-gray-50 transition px-4 py-3"
+                            @click="open['{{ $gid }}'] = !open['{{ $gid }}']"
+                            :aria-expanded="!!open['{{ $gid }}']"
+                        >
+                            <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <svg class="h-4 w-4 text-gray-500 shrink-0 transition-transform" :class="open['{{ $gid }}'] ? 'rotate-90' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                        <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
+                                    </svg>
+                                    <div class="min-w-0">
+                                        <p class="text-sm font-semibold text-gray-900 truncate">{{ $group['employee']['full_name'] ?? '-' }}</p>
+                                        <p class="text-xs text-gray-500">ID {{ $group['employee']['employee_code'] ?? '-' }}</p>
                                     </div>
                                 </div>
-                            </button>
-                            @if ($item['status'] === 'active')
-                                <div class="flex items-center px-3 border-l border-gray-100 shrink-0" @click.stop>
-                                    <button
-                                        type="button"
-                                        wire:click="cancelBon('{{ $bid }}')"
-                                        wire:confirm="Batalkan cash bon ini? Cicilan yang belum dipotong akan dibatalkan."
-                                        class="text-xs font-semibold text-red-600 hover:text-red-800 px-2 py-1"
-                                    >
-                                        Batal
-                                    </button>
+                                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm ml-auto">
+                                    <span class="text-gray-600">{{ $group['bon_count'] }} bon</span>
+                                    <span class="font-semibold text-gray-900 tabular-nums">Sisa Rp {{ number_format($group['remaining_total'], 0, ',', '.') }}</span>
                                 </div>
-                            @endif
-                        </div>
-
-                        <div x-show="open['{{ $bid }}']" x-cloak class="border-t border-gray-100 bg-gray-50/60 px-4 py-4">
-                            <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Riwayat cicilan</p>
-                            @if (!empty($item['notes']))
-                                <p class="text-xs text-gray-500 mb-3">Catatan: {{ $item['notes'] }}</p>
-                            @endif
-                            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                                @foreach ($item['installments'] as $inst)
-                                    <div class="rounded-md border border-gray-200 bg-white px-3 py-2">
-                                        <div class="flex items-center justify-between gap-2">
-                                            <p class="text-sm font-medium text-gray-900">{{ $inst['label'] }}</p>
-                                            <p class="text-sm font-semibold text-gray-900 text-right tabular-nums">{{ $inst['amount_label'] }}</p>
-                                        </div>
-                                        <p class="text-xs text-gray-500 mt-1">
-                                            {{ $inst['status_label'] }}
-                                            @if ($inst['period_label']) · Periode {{ $inst['period_label'] }} @endif
-                                            @if ($inst['paid_at_label']) · {{ $inst['paid_at_label'] }} @endif
-                                        </p>
-                                    </div>
-                                @endforeach
                             </div>
+                        </button>
+
+                        <div x-show="open['{{ $gid }}']" x-cloak class="border-t border-gray-100 bg-gray-50/60 px-4 py-4 space-y-3">
+                            @foreach ($group['bons'] as $item)
+                                @php
+                                    $bid = $item['id'];
+                                    $badge = match ($item['status']) {
+                                        'active' => 'bg-blue-50 text-blue-700',
+                                        'paid' => 'bg-green-50 text-green-700',
+                                        default => 'bg-gray-100 text-gray-600',
+                                    };
+                                @endphp
+                                <div wire:key="cashbon-{{ $bid }}" class="rounded-lg border border-gray-200 bg-white overflow-hidden" x-data="{ showCicilan: false }">
+                                    <div class="flex items-stretch">
+                                        <button
+                                            type="button"
+                                            class="flex-1 min-w-0 text-left px-3 py-2.5 hover:bg-gray-50 transition"
+                                            @click="showCicilan = !showCicilan"
+                                        >
+                                            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                                <svg class="h-3.5 w-3.5 text-gray-400 shrink-0 transition-transform" :class="showCicilan ? 'rotate-90' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                    <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
+                                                </svg>
+                                                <span class="font-semibold text-gray-900 tabular-nums">{{ $item['amount_label'] }}</span>
+                                                <span class="text-gray-600 tabular-nums">{{ $item['installment_count'] }}x · {{ $item['installment_amount_label'] }}</span>
+                                                <span class="text-gray-600 tabular-nums">Sisa {{ $item['remaining_amount_label'] }}</span>
+                                                <span class="text-gray-500">{{ $item['disbursed_at_label'] }}</span>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ $badge }}">{{ $item['status_label'] }}</span>
+                                            </div>
+                                            @if (!empty($item['notes']))
+                                                <p class="mt-1 ml-5 text-xs text-gray-500">Catatan: {{ $item['notes'] }}</p>
+                                            @endif
+                                        </button>
+                                        @if ($item['status'] === 'active')
+                                            <div class="flex items-center px-3 border-l border-gray-100 shrink-0" @click.stop>
+                                                <button
+                                                    type="button"
+                                                    wire:click="cancelBon('{{ $bid }}')"
+                                                    wire:confirm="Batalkan cash bon ini? Cicilan yang belum dipotong akan dibatalkan."
+                                                    class="text-xs font-semibold text-red-600 hover:text-red-800 px-2 py-1"
+                                                >
+                                                    Batal
+                                                </button>
+                                            </div>
+                                        @endif
+                                    </div>
+
+                                    <div x-show="showCicilan" x-cloak class="border-t border-gray-100 px-3 py-3 bg-gray-50/80">
+                                        <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Riwayat cicilan</p>
+                                        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                            @foreach ($item['installments'] as $inst)
+                                                <div class="rounded-md border border-gray-200 bg-white px-3 py-2">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <p class="text-sm font-medium text-gray-900">{{ $inst['label'] }}</p>
+                                                        <p class="text-sm font-semibold text-gray-900 text-right tabular-nums">{{ $inst['amount_label'] }}</p>
+                                                    </div>
+                                                    <p class="text-xs text-gray-500 mt-1">
+                                                        {{ $inst['status_label'] }}
+                                                        @if ($inst['period_label']) · Periode {{ $inst['period_label'] }} @endif
+                                                        @if ($inst['paid_at_label']) · {{ $inst['paid_at_label'] }} @endif
+                                                    </p>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                </div>
+                            @endforeach
                         </div>
                     </div>
                 @empty
@@ -226,6 +263,7 @@ new #[Layout('layouts.app')] class extends Component
                         Belum ada data cash bon untuk filter ini.
                     </div>
                 @endforelse
+            </div>
             </div>
         </div>
     </div>
