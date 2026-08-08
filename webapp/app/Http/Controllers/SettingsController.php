@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CompanySetting;
 use App\Models\Device;
+use App\Models\PayrollSetting;
 use App\Models\Role;
 use App\Models\User;
 use App\Models\WorkSchedule;
@@ -55,6 +56,7 @@ class SettingsController extends Controller
         return view('settings.index', [
             'devices' => $devices,
             'company' => CompanySetting::active(),
+            'payrollSettings' => PayrollSetting::active(),
             'schedule' => WorkSchedule::active() ?? new WorkSchedule(['name' => 'Jadwal Default']),
             'schedules' => WorkSchedule::query()->orderByDesc('is_active')->orderBy('name')->get(),
             'timezoneOptions' => AppTimezone::options(),
@@ -91,5 +93,53 @@ class SettingsController extends Controller
             ->route('settings.index', ['tab' => 'identitas'])
             ->with('status', 'Identitas usaha berhasil disimpan.')
             ->with('settings_tab', 'identitas');
+    }
+
+    public function updatePph21(Request $request)
+    {
+        $data = $request->validate([
+            'enable_pph21' => ['sometimes', 'boolean'],
+            'pph21_method' => ['required_if:enable_pph21,true', 'nullable', 'in:gross,nett,gross_up'],
+        ]);
+
+        $data['enable_pph21'] = $request->boolean('enable_pph21');
+        $data['pph21_method'] = $data['pph21_method'] ?? 'gross';
+
+        PayrollSetting::active()->update($data);
+
+        return redirect()
+            ->route('settings.index', ['tab' => 'pph21'])
+            ->with('status', 'Pengaturan PPh 21 berhasil disimpan.')
+            ->with('settings_tab', 'pph21');
+    }
+
+    public function updateSlipPrint(Request $request)
+    {
+        $data = $request->validate([
+            'slip_paper' => ['required', 'string', Rule::in(array_keys(\App\Support\PaySlipPaper::options()))],
+            'slip_margin_top_mm' => ['required', 'numeric', 'min:0', 'max:50'],
+            'slip_margin_right_mm' => ['required', 'numeric', 'min:0', 'max:50'],
+            'slip_margin_bottom_mm' => ['required', 'numeric', 'min:0', 'max:50'],
+            'slip_margin_left_mm' => ['required', 'numeric', 'min:0', 'max:50'],
+            'slip_fit_to_width' => ['sometimes', 'boolean'],
+            'slip_font' => ['required', 'in:times,helvetica'],
+            'slip_font_scale' => ['required', 'integer', 'min:70', 'max:150'],
+            'slip_width_mm' => ['nullable', 'numeric', 'min:40', 'max:300'],
+            'slip_height_mm' => ['nullable', 'numeric', 'min:50', 'max:400'],
+        ]);
+
+        $data['slip_fit_to_width'] = $request->boolean('slip_fit_to_width');
+        $data['slip_width_mm'] = $request->filled('slip_width_mm') ? $data['slip_width_mm'] : null;
+        $data['slip_height_mm'] = $request->filled('slip_height_mm') ? $data['slip_height_mm'] : null;
+
+        PayrollSetting::active()->update($data);
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json(['ok' => true, 'message' => 'Pengaturan cetak slip disimpan.']);
+        }
+
+        return redirect()
+            ->route('payroll.index')
+            ->with('status', 'Pengaturan cetak slip berhasil disimpan.');
     }
 }

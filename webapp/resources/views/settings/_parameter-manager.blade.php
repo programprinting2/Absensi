@@ -392,7 +392,7 @@ function parameterManager() {
         },
 
         async deleteCategory(cat) {
-            if (!confirm(`Hapus kategori "${cat.name}" beserta semua detailnya?`)) return;
+            if (! await window.appConfirm(`Hapus kategori "${cat.name}" beserta semua detailnya?`)) return;
             try {
                 await this.request(`${base}/${cat.id}`, { method: 'DELETE' });
                 if (this.selectedCategoryId === cat.id) {
@@ -460,7 +460,7 @@ function parameterManager() {
         },
 
         async deleteDetail(detail) {
-            if (!confirm(`Hapus detail "${detail.name}"?`)) return;
+            if (! await window.appConfirm(`Hapus detail "${detail.name}"?`)) return;
             try {
                 await this.request(`${base}/${this.selectedCategoryId}/details/${detail.id}`, {
                     method: 'DELETE',

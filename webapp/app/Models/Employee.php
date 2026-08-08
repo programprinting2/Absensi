@@ -162,4 +162,9 @@ class Employee extends Model
     {
         return $this->hasOne(User::class);
     }
+
+    public function attendanceDayReasons()
+    {
+        return $this->hasMany(AttendanceDayReason::class);
+    }
 }

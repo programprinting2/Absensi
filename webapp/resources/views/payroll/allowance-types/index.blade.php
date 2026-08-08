@@ -2,7 +2,7 @@
     <x-slot name="header">
         <div class="flex items-center justify-between">
             <div>
-                <a href="{{ route('payroll.settings') }}" class="text-sm text-gray-500 hover:text-gray-700">&larr; Pengaturan</a>
+                <a href="{{ route('payroll.index') }}" class="text-sm text-gray-500 hover:text-gray-700">&larr; Penggajian</a>
                 <h2 class="font-semibold text-xl text-gray-800 leading-tight">Jenis Tunjangan</h2>
             </div>
             <a href="{{ route('payroll.allowance-types.create') }}" class="inline-flex items-center px-4 py-2 bg-gray-800 border border-transparent rounded-lg text-sm font-medium text-white hover:bg-gray-700">+ Tambah</a>
@@ -35,7 +35,7 @@
                                     <a href="{{ route('payroll.allowance-types.edit', $type) }}" class="text-blue-600 hover:text-blue-800">Edit</a>
                                     <form method="POST" action="{{ route('payroll.allowance-types.destroy', $type) }}" class="inline">
                                         @csrf @method('DELETE')
-                                        <button type="submit" onclick="return confirm('Hapus tunjangan ini?')" class="text-red-600 hover:text-red-800">Hapus</button>
+                                        <button type="submit" onclick="return confirmSubmit(event, 'Hapus tunjangan ini?')" class="text-red-600 hover:text-red-800">Hapus</button>
                                     </form>
                                 </td>
                             </tr>

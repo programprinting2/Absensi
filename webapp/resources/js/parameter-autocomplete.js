@@ -194,7 +194,7 @@ document.addEventListener('alpine:init', () => {
 
                 this.cancelEdit();
             } catch (e) {
-                alert(e.message || 'Gagal mengubah data.');
+                await window.appAlert(e.message || 'Gagal mengubah data.', { danger: true });
             } finally {
                 this.saving = false;
             }
@@ -205,7 +205,7 @@ document.addEventListener('alpine:init', () => {
                 return;
             }
 
-            if (!confirm(`Hapus "${option.label}" dari master parameter?`)) {
+            if (! await window.appConfirm(`Hapus "${option.label}" dari master parameter?`)) {
                 return;
             }
 
@@ -218,7 +218,7 @@ document.addEventListener('alpine:init', () => {
                     this.$wire.set(this.prop, '', false);
                 }
             } catch (e) {
-                alert(e.message || 'Gagal menghapus data.');
+                await window.appAlert(e.message || 'Gagal menghapus data.', { danger: true });
             }
         },
 
@@ -247,7 +247,7 @@ document.addEventListener('alpine:init', () => {
                 this.options.sort((a, b) => a.label.localeCompare(b.label, 'id'));
                 this.selectOption(option);
             } catch (e) {
-                alert(e.message || 'Gagal menambah data.');
+                await window.appAlert(e.message || 'Gagal menambah data.', { danger: true });
             } finally {
                 this.saving = false;
             }

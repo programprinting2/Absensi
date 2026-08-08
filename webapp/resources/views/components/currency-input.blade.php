@@ -9,6 +9,7 @@
 @endphp
 
 <div
+    @if ($wire) wire:key="currency-field-{{ $wire }}" @endif
     x-data="currencyField({{ $initial }}, {{ $wire ? \Illuminate\Support\Js::from($wire) : 'null' }})"
     class="contents"
 >
@@ -16,7 +17,8 @@
         type="text"
         inputmode="numeric"
         autocomplete="off"
-        x-model="display"
+        x-ref="input"
+        :value="display"
         @input="onInput($event)"
         @blur="onBlur()"
         {{ $attributes->merge([

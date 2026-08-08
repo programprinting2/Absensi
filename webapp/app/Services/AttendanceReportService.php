@@ -266,7 +266,13 @@ class AttendanceReportService
 
             if ($clockInAt && $clockOutAt && $clockOutAt->greaterThan($clockInAt)) {
                 $grossMinutes = (int) round(abs($clockInAt->diffInMinutes($clockOutAt)));
-                $netMinutes = $grossMinutes - ($breakMinutes ?? 0);
+                $allowedBreak = (int) ($schedule->break_duration_minutes ?? 0);
+                $actualBreak = (int) ($breakMinutes ?? 0);
+
+                // Istirahat dalam jatah dikurangi dari span (bukan jam kerja).
+                // Over break tidak ikut mengurangi jam kerja di sini — dilapor terpisah.
+                $breakForNet = min($actualBreak, $allowedBreak);
+                $netMinutes = $grossMinutes - $breakForNet;
                 $row['net_work_minutes'] = $netMinutes;
 
                 if ($required > 0 && $netMinutes < $required) {
@@ -299,13 +305,13 @@ class AttendanceReportService
     }
 
     /**
-     * Status kolom:
-     * Masuk = OK | Not OK (3 : 9)
-     * Istirahat = OK | Not OK (0 : 5)
-     * Kerja = OK | Not OK (- 0 : 10)
-     * Lembur = OK (2 : 30)  — hanya jika jam kerja > target (mis. 8 jam)
+     * Status kolom (metrik, hijau):
+     * Terlambat = 0 : 15
+     * Over break = 0 : 5
+     * Pulang awal = 1 : 5
+     * Lembur = 1 : 0
      *
-     * @return list<array{label: string, ok: bool, display: ?string, negative: bool}>
+     * @return list<array{label: string, ok: bool, display: ?string, negative: bool, metric: bool}>
      */
     private function buildStatusParts(array $row, ?int $netMinutes, ?WorkSchedule $schedule, ?string $date): array
     {
@@ -314,53 +320,80 @@ class AttendanceReportService
         }
 
         $parts = [];
-        $required = (int) ($schedule?->work_duration_minutes ?? 0);
 
-        if ($row['clock_in']) {
-            $late = (int) ($row['late_minutes'] ?? 0);
+        $late = (int) ($row['late_minutes'] ?? 0);
+        if ($late > 0) {
             $parts[] = [
-                'label' => 'Masuk',
-                'ok' => $late <= 0,
-                'display' => $late > 0 ? $this->formatHmPair($late) : null,
+                'label' => 'Terlambat',
+                'ok' => false,
+                'display' => $this->formatHmPair($late),
                 'negative' => false,
+                'metric' => true,
             ];
         }
 
-        if ($row['break_start'] && $row['break_end']) {
-            $over = (int) ($row['over_break_minutes'] ?? 0);
+        $over = (int) ($row['over_break_minutes'] ?? 0);
+        if ($over > 0) {
             $parts[] = [
-                'label' => 'Istirahat',
-                'ok' => $over <= 0,
-                'display' => $over > 0 ? $this->formatHmPair($over) : null,
+                'label' => 'Over break',
+                'ok' => false,
+                'display' => $this->formatHmPair($over),
                 'negative' => false,
+                'metric' => true,
             ];
         }
 
-        if ($row['clock_out'] && $netMinutes !== null && $required > 0) {
-            $short = max(0, $required - $netMinutes);
-            $overtime = max(0, $netMinutes - $required);
+        $early = (int) ($row['early_out_minutes'] ?? 0);
+        $short = (int) ($row['short_work_minutes'] ?? 0);
 
+        if ($early > 0) {
             $parts[] = [
-                'label' => 'Kerja',
-                'ok' => $short <= 0,
-                'display' => $short > 0 ? $this->formatHmPair($short) : null,
-                'negative' => $short > 0,
+                'label' => 'Pulang awal',
+                'ok' => false,
+                'display' => $this->formatHmPair($early),
+                'negative' => false,
+                'metric' => true,
             ];
+        }
 
-            if ($overtime > 0) {
-                $parts[] = [
-                    'label' => 'Lembur',
-                    'ok' => true,
-                    'display' => $this->formatHmPair($overtime),
-                    'negative' => false,
-                ];
+        // Jam kurang = sisa kekurangan jam kerja yang belum tercakup pulang awal.
+        // Istirahat normal tidak menambah baris ini; over break dilapor terpisah.
+        $jamKurang = $early > 0 ? max(0, $short - $early) : $short;
+        if ($jamKurang > 1) {
+            $parts[] = [
+                'label' => 'Jam kurang',
+                'ok' => false,
+                'display' => $this->formatHmPair($jamKurang),
+                'negative' => false,
+                'metric' => true,
+            ];
+        }
+
+        $overtime = (int) ($row['overtime_minutes'] ?? 0);
+        if ($overtime <= 0 && $netMinutes !== null) {
+            $required = (int) ($schedule?->work_duration_minutes ?? 0);
+            if ($required > 0) {
+                $overtime = max(0, $netMinutes - $required);
             }
-        } elseif ($this->requiresClockOut($date, $schedule) && $row['clock_in'] && ! $row['clock_out']) {
+        }
+
+        if ($overtime > 0) {
+            $parts[] = [
+                'label' => 'Lembur',
+                'ok' => true,
+                'display' => $this->formatHmPair($overtime),
+                'negative' => false,
+                'metric' => true,
+            ];
+        }
+
+        if ($this->requiresClockOut($date, $schedule) && $row['clock_in'] && ! $row['clock_out']) {
             $parts[] = [
                 'label' => 'Kerja',
                 'ok' => false,
                 'display' => null,
                 'negative' => false,
+                'metric' => false,
             ];
         }
 
@@ -368,8 +401,7 @@ class AttendanceReportService
     }
 
     /**
-     * OK jika semua bagian status (Masuk/Istirahat/Kerja) OK.
-     * Pesan Not OK tetap disiapkan untuk rekap lama / fallback.
+     * OK jika ada absensi lengkap tanpa pelanggaran (terlambat / over break / pulang awal / jam kurang).
      *
      * @return array{compliance_ok: bool, compliance_issues: list<string>}
      */
@@ -383,23 +415,37 @@ class AttendanceReportService
             ];
         }
 
-        $parts = $row['status_parts'] ?? [];
         $issues = [];
 
-        foreach ($parts as $part) {
-            if (! empty($part['ok'])) {
-                continue;
-            }
-
-            $time = $part['display'] ?? null;
-            $suffix = $time
-                ? ' ('.(! empty($part['negative']) ? '- ' : '').$time.')'
-                : '';
-            $issues[] = $part['label'].' = Not OK'.$suffix;
+        $late = (int) ($row['late_minutes'] ?? 0);
+        if (! empty($row['is_late']) || $late > 0) {
+            $issues[] = 'Terlambat = '.$this->formatHmPair($late > 0 ? $late : 0);
         }
 
+        $over = (int) ($row['over_break_minutes'] ?? 0);
+        if (! empty($row['is_over_break']) || $over > 0) {
+            $issues[] = 'Over break = '.$this->formatHmPair($over > 0 ? $over : 0);
+        }
+
+        $early = (int) ($row['early_out_minutes'] ?? 0);
+        if (! empty($row['is_early_out']) || $early > 0) {
+            $issues[] = 'Pulang awal = '.$this->formatHmPair($early > 0 ? $early : 0);
+        }
+
+        $short = (int) ($row['short_work_minutes'] ?? 0);
+        $jamKurang = $early > 0 ? max(0, $short - $early) : $short;
+        if ($jamKurang > 1) {
+            $issues[] = 'Jam kurang = '.$this->formatHmPair($jamKurang);
+        }
+
+        if ($this->requiresClockOut($date, $schedule) && ($row['clock_in'] ?? null) && ! ($row['clock_out'] ?? null)) {
+            $issues[] = 'Kerja = Not OK';
+        }
+
+        $hasAttendance = (bool) (($row['clock_in'] ?? null) || ($row['clock_out'] ?? null));
+
         return [
-            'compliance_ok' => $parts !== [] && $issues === [],
+            'compliance_ok' => $hasAttendance && $issues === [],
             'compliance_issues' => $issues,
         ];
     }

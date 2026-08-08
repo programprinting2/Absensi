@@ -93,6 +93,17 @@
     <td class="px-6 py-3 align-top">
         <x-attendance-status :parts="$row['status_parts'] ?? []" :fallback-status="$row['status']" />
     </td>
+    <td class="px-6 py-3 align-top max-w-xs">
+        @if (! empty($row['reason_lines']))
+            <div class="space-y-0.5 text-xs text-gray-700">
+                @foreach ($row['reason_lines'] as $i => $line)
+                    <p @class(['font-medium text-gray-800' => $i === 0, 'text-gray-500' => $i > 0])>{{ $line }}</p>
+                @endforeach
+            </div>
+        @else
+            <span class="text-gray-400">—</span>
+        @endif
+    </td>
     <td class="px-6 py-3 whitespace-nowrap text-right">
         @if ($hasLogs)
             <button

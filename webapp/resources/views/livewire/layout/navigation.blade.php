@@ -71,7 +71,7 @@ new class extends Component
 
                 <x-slot name="content">
                     <x-dropdown-link :href="route('profile')">
-                        {{ __('Profile') }}
+                        {{ __('Profil') }}
                     </x-dropdown-link>
 
                     <button wire:click="logout" class="w-full text-start">

@@ -14,7 +14,6 @@ new #[Layout('layouts.app')] class extends Component
     public string $status = 'active';
 
     public bool $showForm = false;
-    public ?string $expandedId = null;
 
     public string $employee_id = '';
     public string $amount = '';
@@ -51,11 +50,6 @@ new #[Layout('layouts.app')] class extends Component
         return (string) (int) floor($amount / $count);
     }
 
-    public function toggleExpand(string $id): void
-    {
-        $this->expandedId = $this->expandedId === $id ? null : $id;
-    }
-
     public function save(CashBonService $cashBons): void
     {
         $data = $this->validate([
@@ -68,7 +62,7 @@ new #[Layout('layouts.app')] class extends Component
 
         $employee = Employee::findOrFail($data['employee_id']);
 
-        $cashBon = $cashBons->create(
+        $cashBons->create(
             $employee,
             (float) $data['amount'],
             (int) $data['installment_count'],
@@ -77,7 +71,6 @@ new #[Layout('layouts.app')] class extends Component
         );
 
         $this->showForm = false;
-        $this->expandedId = $cashBon->id;
         Toast::success('Cash bon berhasil dicatat.', $this);
     }
 
@@ -97,10 +90,38 @@ new #[Layout('layouts.app')] class extends Component
     {
         $payload = $cashBons->indexPayload($this->status);
 
+        $selectedEmployeeRemaining = 0.0;
+        $selectedEmployeeActiveCount = 0;
+        if ($this->showForm && filled($this->employee_id)) {
+            $employeePayload = $cashBons->payloadFor(Employee::findOrFail($this->employee_id));
+            $selectedEmployeeRemaining = (float) $employeePayload['active_remaining'];
+            $selectedEmployeeActiveCount = collect($employeePayload['items'])
+                ->where('status', 'active')
+                ->count();
+        }
+
         return [
-            'items' => $payload['items'],
+            'groups' => collect($payload['items'])
+                ->groupBy(fn ($item) => $item['employee']['id'] ?? 'unknown')
+                ->map(function ($bons) {
+                    $employee = $bons->first()['employee'] ?? ['id' => null, 'full_name' => '-', 'employee_code' => '-'];
+                    $sorted = $bons->sortByDesc('disbursed_at')->values();
+
+                    return [
+                        'employee' => $employee,
+                        'bons' => $sorted->all(),
+                        'bon_count' => $sorted->count(),
+                        'remaining_total' => (float) $sorted->sum('remaining_amount'),
+                        'has_active' => $sorted->contains(fn ($b) => ($b['status'] ?? '') === 'active'),
+                    ];
+                })
+                ->sortBy(fn ($g) => mb_strtolower($g['employee']['full_name'] ?? ''))
+                ->values()
+                ->all(),
             'activeRemaining' => $payload['active_remaining'],
             'activeCount' => $payload['active_count'],
+            'selectedEmployeeRemaining' => $selectedEmployeeRemaining,
+            'selectedEmployeeActiveCount' => $selectedEmployeeActiveCount,
             'employees' => Employee::query()
                 ->where('is_active', true)
                 ->orderBy('full_name')
@@ -143,85 +164,106 @@ new #[Layout('layouts.app')] class extends Component
                 @endforeach
             </div>
 
-            <div class="bg-white shadow-sm rounded-lg overflow-hidden flex-1 min-h-0 flex flex-col">
-                <div class="overflow-auto flex-1">
-                    <table class="min-w-full divide-y divide-gray-200 text-sm">
-                        <thead class="bg-gray-50 sticky top-0 z-10">
-                            <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                <th class="px-6 py-3">Karyawan</th>
-                                <th class="px-6 py-3 text-right">Nominal</th>
-                                <th class="px-6 py-3 text-right">Cicilan</th>
-                                <th class="px-6 py-3 text-right">Sisa</th>
-                                <th class="px-6 py-3">Tanggal Cair</th>
-                                <th class="px-6 py-3">Status</th>
-                                <th class="px-6 py-3 text-right">Aksi</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100 bg-white">
-                            @forelse ($items as $item)
-                                <tr class="hover:bg-gray-50" wire:key="cashbon-{{ $item['id'] }}">
-                                    <td class="px-6 py-3">
-                                        <p class="font-medium text-gray-900">{{ $item['employee']['full_name'] ?? '-' }}</p>
-                                        <p class="text-xs text-gray-500">ID {{ $item['employee']['employee_code'] ?? '-' }}</p>
-                                    </td>
-                                    <td class="px-6 py-3 whitespace-nowrap font-medium text-gray-900 text-right tabular-nums">{{ $item['amount_label'] }}</td>
-                                    <td class="px-6 py-3 whitespace-nowrap text-gray-700 text-right tabular-nums">{{ $item['installment_count'] }}x · {{ $item['installment_amount_label'] }}</td>
-                                    <td class="px-6 py-3 whitespace-nowrap text-gray-700 text-right tabular-nums">{{ $item['remaining_amount_label'] }}</td>
-                                    <td class="px-6 py-3 whitespace-nowrap text-gray-500">{{ $item['disbursed_at_label'] }}</td>
-                                    <td class="px-6 py-3 whitespace-nowrap">
-                                        @php
-                                            $badge = match ($item['status']) {
-                                                'active' => 'bg-blue-50 text-blue-700',
-                                                'paid' => 'bg-green-50 text-green-700',
-                                                default => 'bg-gray-100 text-gray-600',
-                                            };
-                                        @endphp
-                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $badge }}">{{ $item['status_label'] }}</span>
-                                    </td>
-                                    <td class="px-6 py-3 whitespace-nowrap text-right space-x-2">
-                                        <button type="button" wire:click="toggleExpand('{{ $item['id'] }}')" class="text-indigo-600 hover:text-indigo-800 text-xs font-semibold">
-                                            {{ $expandedId === $item['id'] ? 'Tutup' : 'Cicilan' }}
+            <div class="flex-1 min-h-0 overflow-y-auto space-y-2" x-data="{ open: {} }">
+                @forelse ($groups as $group)
+                    @php $gid = $group['employee']['id'] ?? 'unknown'; @endphp
+                    <div wire:key="cashbon-emp-{{ $gid }}" class="bg-white shadow-sm rounded-lg overflow-hidden border border-gray-100">
+                        <button
+                            type="button"
+                            class="w-full text-left hover:bg-gray-50 transition px-4 py-3"
+                            @click="open['{{ $gid }}'] = !open['{{ $gid }}']"
+                            :aria-expanded="!!open['{{ $gid }}']"
+                        >
+                            <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+                                <div class="flex items-center gap-2 min-w-0">
+                                    <svg class="h-4 w-4 text-gray-500 shrink-0 transition-transform" :class="open['{{ $gid }}'] ? 'rotate-90' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                        <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
+                                    </svg>
+                                    <div class="min-w-0">
+                                        <p class="text-sm font-semibold text-gray-900 truncate">{{ $group['employee']['full_name'] ?? '-' }}</p>
+                                        <p class="text-xs text-gray-500">ID {{ $group['employee']['employee_code'] ?? '-' }}</p>
+                                    </div>
+                                </div>
+                                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm ml-auto">
+                                    <span class="text-gray-600">{{ $group['bon_count'] }} bon</span>
+                                    <span class="font-semibold text-gray-900 tabular-nums">Sisa Rp {{ number_format($group['remaining_total'], 0, ',', '.') }}</span>
+                                </div>
+                            </div>
+                        </button>
+
+                        <div x-show="open['{{ $gid }}']" x-cloak class="border-t border-gray-100 bg-gray-50/60 px-4 py-4 space-y-3">
+                            @foreach ($group['bons'] as $item)
+                                @php
+                                    $bid = $item['id'];
+                                    $badge = match ($item['status']) {
+                                        'active' => 'bg-blue-50 text-blue-700',
+                                        'paid' => 'bg-green-50 text-green-700',
+                                        default => 'bg-gray-100 text-gray-600',
+                                    };
+                                @endphp
+                                <div wire:key="cashbon-{{ $bid }}" class="rounded-lg border border-gray-200 bg-white overflow-hidden" x-data="{ showCicilan: false }">
+                                    <div class="flex items-stretch">
+                                        <button
+                                            type="button"
+                                            class="flex-1 min-w-0 text-left px-3 py-2.5 hover:bg-gray-50 transition"
+                                            @click="showCicilan = !showCicilan"
+                                        >
+                                            <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+                                                <svg class="h-3.5 w-3.5 text-gray-400 shrink-0 transition-transform" :class="showCicilan ? 'rotate-90' : ''" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                    <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
+                                                </svg>
+                                                <span class="font-semibold text-gray-900 tabular-nums">{{ $item['amount_label'] }}</span>
+                                                <span class="text-gray-600 tabular-nums">{{ $item['installment_count'] }}x · {{ $item['installment_amount_label'] }}</span>
+                                                <span class="text-gray-600 tabular-nums">Sisa {{ $item['remaining_amount_label'] }}</span>
+                                                <span class="text-gray-500">{{ $item['disbursed_at_label'] }}</span>
+                                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium {{ $badge }}">{{ $item['status_label'] }}</span>
+                                            </div>
+                                            @if (!empty($item['notes']))
+                                                <p class="mt-1 ml-5 text-xs text-gray-500">Catatan: {{ $item['notes'] }}</p>
+                                            @endif
                                         </button>
                                         @if ($item['status'] === 'active')
-                                            <button type="button" wire:click="cancelBon('{{ $item['id'] }}')" wire:confirm="Batalkan cash bon ini? Cicilan yang belum dipotong akan dibatalkan." class="text-red-600 hover:text-red-800 text-xs font-semibold">
-                                                Batal
-                                            </button>
-                                        @endif
-                                    </td>
-                                </tr>
-                                @if ($expandedId === $item['id'])
-                                    <tr class="bg-gray-50" wire:key="cashbon-detail-{{ $item['id'] }}">
-                                        <td colspan="7" class="px-6 py-4">
-                                            <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Riwayat cicilan</p>
-                                            @if (!empty($item['notes']))
-                                                <p class="text-xs text-gray-500 mb-3">Catatan: {{ $item['notes'] }}</p>
-                                            @endif
-                                            <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                                                @foreach ($item['installments'] as $inst)
-                                                    <div class="rounded-md border border-gray-200 bg-white px-3 py-2">
-                                                        <div class="flex items-center justify-between gap-2">
-                                                            <p class="text-sm font-medium text-gray-900">{{ $inst['label'] }}</p>
-                                                            <p class="text-sm font-semibold text-gray-900 text-right tabular-nums">{{ $inst['amount_label'] }}</p>
-                                                        </div>
-                                                        <p class="text-xs text-gray-500 mt-1">
-                                                            {{ $inst['status_label'] }}
-                                                            @if ($inst['period_label']) · Periode {{ $inst['period_label'] }} @endif
-                                                            @if ($inst['paid_at_label']) · {{ $inst['paid_at_label'] }} @endif
-                                                        </p>
-                                                    </div>
-                                                @endforeach
+                                            <div class="flex items-center px-3 border-l border-gray-100 shrink-0" @click.stop>
+                                                <button
+                                                    type="button"
+                                                    wire:click="cancelBon('{{ $bid }}')"
+                                                    wire:confirm="Batalkan cash bon ini? Cicilan yang belum dipotong akan dibatalkan."
+                                                    class="text-xs font-semibold text-red-600 hover:text-red-800 px-2 py-1"
+                                                >
+                                                    Batal
+                                                </button>
                                             </div>
-                                        </td>
-                                    </tr>
-                                @endif
-                            @empty
-                                <tr>
-                                    <td colspan="7" class="px-6 py-10 text-center text-gray-500">Belum ada data cash bon untuk filter ini.</td>
-                                </tr>
-                            @endforelse
-                        </tbody>
-                    </table>
-                </div>
+                                        @endif
+                                    </div>
+
+                                    <div x-show="showCicilan" x-cloak class="border-t border-gray-100 px-3 py-3 bg-gray-50/80">
+                                        <p class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">Riwayat cicilan</p>
+                                        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                                            @foreach ($item['installments'] as $inst)
+                                                <div class="rounded-md border border-gray-200 bg-white px-3 py-2">
+                                                    <div class="flex items-center justify-between gap-2">
+                                                        <p class="text-sm font-medium text-gray-900">{{ $inst['label'] }}</p>
+                                                        <p class="text-sm font-semibold text-gray-900 text-right tabular-nums">{{ $inst['amount_label'] }}</p>
+                                                    </div>
+                                                    <p class="text-xs text-gray-500 mt-1">
+                                                        {{ $inst['status_label'] }}
+                                                        @if ($inst['period_label']) · Periode {{ $inst['period_label'] }} @endif
+                                                        @if ($inst['paid_at_label']) · {{ $inst['paid_at_label'] }} @endif
+                                                    </p>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @empty
+                    <div class="bg-white shadow-sm rounded-lg px-6 py-10 text-center text-sm text-gray-500 border border-gray-100">
+                        Belum ada data cash bon untuk filter ini.
+                    </div>
+                @endforelse
+            </div>
             </div>
         </div>
     </div>
@@ -238,13 +280,27 @@ new #[Layout('layouts.app')] class extends Component
                 <div class="p-6 space-y-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700">Karyawan</label>
-                        <select wire:model="employee_id" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                        <select wire:model.live="employee_id" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm text-sm focus:ring-indigo-500 focus:border-indigo-500">
                             <option value="">Pilih karyawan…</option>
                             @foreach ($employees as $employee)
                                 <option value="{{ $employee->id }}">{{ $employee->full_name }} ({{ $employee->employee_code }})</option>
                             @endforeach
                         </select>
                         @error('employee_id') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+
+                        @if (filled($employee_id) && $selectedEmployeeRemaining > 0)
+                            <div class="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                <p class="font-medium">Sisa bon sebelumnya</p>
+                                <p class="mt-0.5 tabular-nums">
+                                    Rp {{ number_format($selectedEmployeeRemaining, 0, ',', '.') }}
+                                    <span class="text-amber-700/80 font-normal">
+                                        · {{ $selectedEmployeeActiveCount }} bon aktif
+                                    </span>
+                                </p>
+                            </div>
+                        @elseif (filled($employee_id))
+                            <p class="mt-2 text-xs text-gray-500">Tidak ada sisa bon aktif untuk karyawan ini.</p>
+                        @endif
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div>

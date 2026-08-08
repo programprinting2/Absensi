@@ -233,7 +233,7 @@ document.addEventListener('alpine:init', () => {
 
                 this.cancelEdit();
             } catch (e) {
-                alert(e.message || 'Gagal mengubah data.');
+                await window.appAlert(e.message || 'Gagal mengubah data.', { danger: true });
             } finally {
                 this.saving = false;
             }
@@ -244,7 +244,7 @@ document.addEventListener('alpine:init', () => {
                 return;
             }
 
-            if (!confirm(`Hapus "${option.label || option.name}" dari master?`)) {
+            if (! await window.appConfirm(`Hapus "${option.label || option.name}" dari master?`)) {
                 return;
             }
 
@@ -258,7 +258,7 @@ document.addEventListener('alpine:init', () => {
                     this.query = '';
                 }
             } catch (e) {
-                alert(e.message || 'Gagal menghapus data.');
+                await window.appAlert(e.message || 'Gagal menghapus data.', { danger: true });
             }
         },
 
@@ -290,7 +290,7 @@ document.addEventListener('alpine:init', () => {
                 this.pushOptionsToStore();
                 this.selectOption(option);
             } catch (e) {
-                alert(e.message || 'Gagal menambah data.');
+                await window.appAlert(e.message || 'Gagal menambah data.', { danger: true });
             } finally {
                 this.saving = false;
             }
@@ -419,7 +419,7 @@ document.addEventListener('alpine:init', () => {
                 Alpine.store('salaryAllowanceTypes').options = data.allowance_types || [];
                 Alpine.store('salaryDeductionTypes').options = data.deduction_types || [];
             } catch (e) {
-                alert(e.message || 'Gagal memuat pengaturan gaji.');
+                await window.appAlert(e.message || 'Gagal memuat pengaturan gaji.', { danger: true });
                 this.open = false;
             } finally {
                 this.loading = false;
@@ -461,14 +461,14 @@ document.addEventListener('alpine:init', () => {
 
             for (const row of this.allowances) {
                 if (!row.allowance_type_id) {
-                    alert('Pilih jenis tunjangan untuk setiap baris.');
+                    await window.appAlert('Pilih jenis tunjangan untuk setiap baris.');
                     return;
                 }
             }
 
             for (const row of this.deductions) {
                 if (!row.deduction_type_id) {
-                    alert('Pilih jenis potongan untuk setiap baris.');
+                    await window.appAlert('Pilih jenis potongan untuk setiap baris.');
                     return;
                 }
             }
@@ -517,7 +517,7 @@ document.addEventListener('alpine:init', () => {
                     detail: { message: data.message || 'Data gaji berhasil disimpan.' },
                 }));
             } catch (e) {
-                alert(e.message || 'Gagal menyimpan data gaji.');
+                await window.appAlert(e.message || 'Gagal menyimpan data gaji.', { danger: true });
             } finally {
                 this.saving = false;
             }

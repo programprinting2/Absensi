@@ -1500,7 +1500,7 @@ function runPreparedRestore() {
   if (mode === 'table') {
     selectedTables = getSelectedRestoreTables();
     if (!selectedTables.length) {
-      alert('Pilih minimal satu tabel untuk direstore.');
+      window.appAlert('Pilih minimal satu tabel untuk direstore.');
       return;
     }
   }

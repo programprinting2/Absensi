@@ -164,7 +164,7 @@
 
                             <form method="POST"
                                   action="{{ route('employees.fingerprint-templates.destroy', [$employee, $template]) }}"
-                                  onsubmit="return confirm('Hapus sidik jari ini? Perintah hapus juga akan dikirim ke sensor.')">
+                                  onsubmit="return confirmSubmit(event, 'Hapus sidik jari ini? Perintah hapus juga akan dikirim ke sensor.')">
                                 @csrf
                                 @method('DELETE')
                                 <x-danger-button type="submit">

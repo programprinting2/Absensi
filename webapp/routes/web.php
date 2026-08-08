@@ -70,12 +70,16 @@ Route::middleware(['auth', 'verified', 'menu'])->group(function () {
     Route::resource('payroll/deduction-types', DeductionTypeController::class)->except(['show'])->names('payroll.deduction-types');
 
     Volt::route('payroll', 'pages.payroll.index')->name('payroll.index');
+    Route::get('payroll/slip-preview', [PaySlipController::class, 'previewSample'])->name('payroll.slip.preview');
     Volt::route('payroll/{period}', 'pages.payroll.show')->name('payroll.show');
     Volt::route('payroll/{period}/entry/{entry}', 'pages.payroll.entry')->name('payroll.entry');
-    Route::get('payroll/{period}/entry/{entry}/slip', [PaySlipController::class, 'download'])->name('payroll.slip');
+    Route::get('payroll/{period}/entry/{entry}/slip', [PaySlipController::class, 'print'])->name('payroll.slip');
+    Route::get('payroll/{period}/slips', [PaySlipController::class, 'printPeriod'])->name('payroll.slips');
 
     Route::get('settings', [SettingsController::class, 'index'])->name('settings.index');
     Route::put('settings/company', [SettingsController::class, 'updateCompany'])->name('settings.company.update');
+    Route::put('settings/pph21', [SettingsController::class, 'updatePph21'])->name('settings.pph21.update');
+    Route::put('settings/slip', [SettingsController::class, 'updateSlipPrint'])->name('settings.slip.update');
     Route::post('settings/roles', [RoleAccessController::class, 'store'])->name('settings.roles.store');
     Route::put('settings/roles/{role}', [RoleAccessController::class, 'update'])->name('settings.roles.update');
     Route::delete('settings/roles/{role}', [RoleAccessController::class, 'destroy'])->name('settings.roles.destroy');
