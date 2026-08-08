@@ -1,0 +1,22 @@
+# Konsisten LF di repo — cegah false "modified" di Windows (CRLF vs LF).
+* text=auto eol=lf
+
+*.php text eol=lf diff=php
+*.blade.php text eol=lf diff=html
+*.js text eol=lf
+*.css text eol=lf
+*.json text eol=lf
+*.cpp text eol=lf
+*.h text eol=lf
+*.c text eol=lf
+*.ini text eol=lf
+*.md text eol=lf diff=markdown
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.bin binary
+*.elf binary
+*.pdf binary

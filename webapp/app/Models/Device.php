@@ -17,6 +17,7 @@ class Device extends Model
         'location',
         'firmware_version',
         'last_seen_at',
+        'last_ip',
         'is_active',
         'fingerprint_capacity',
         'lcd_config',

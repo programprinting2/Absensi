@@ -5,7 +5,8 @@
     "scripts": {
         "build": "vite build",
         "dev": "vite",
-        "dev:watch": "concurrently -k -n server,vite -c cyan,magenta \"nodemon --watch app --watch routes --watch config --watch database --watch resources/views --watch bootstrap --ext php,blade.php --delay 1 --signal SIGTERM --exec \\\"php artisan serve --host=0.0.0.0 --port=8008\\\"\" \"vite\""
+        "dev:watch": "concurrently -k -n server,vite -c cyan,magenta \"nodemon --watch app --watch routes --watch config --watch database --watch resources/views --watch bootstrap --ext php,blade.php --delay 1 --signal SIGTERM --exec \\\"php artisan serve --host=0.0.0.0 --port=8008\\\"\" \"vite\"",
+        "prod": "npm run build && php artisan serve --host=0.0.0.0 --port=8008"
     },
     "devDependencies": {
         "@tailwindcss/forms": "^0.5.2",

@@ -1,8 +1,8 @@
 <x-app-layout>
     <x-slot name="header">
         <div class="flex items-center justify-between">
-            <h2 class="font-semibold text-xl text-gray-800 leading-tight">Setup WiFi Device</h2>
-            <a href="{{ route('settings.index') }}" class="text-sm text-gray-600 hover:text-gray-900">Kembali</a>
+            <h2 class="font-semibold text-xl text-gray-800 leading-tight">Konfigurasi Device</h2>
+            <a href="{{ route('settings.index') }}" class="text-sm text-gray-600 hover:text-gray-900">Kembali ke Settings</a>
         </div>
     </x-slot>
 
@@ -14,35 +14,39 @@
                     <span class="text-gray-400">({{ $device->device_code }})</span>
                 </p>
 
-                <ol class="list-decimal list-inside space-y-2 text-sm text-gray-700">
-                    <li>Klik <strong>Mulai Setup WiFi</strong> supaya device membuka mode konfigurasi.</li>
-                    <li>Di HP/laptop, sambungkan ke WiFi <strong>{{ $apName }}</strong> (password: <strong>{{ $apPassword }}</strong>).</li>
-                    <li>Klik <strong>Buka WiFi Manager</strong> — halaman setup WiFi device akan terbuka di browser.</li>
-                </ol>
+                @if (filled($device->last_ip))
+                    <div class="rounded-md bg-green-50 border border-green-200 px-4 py-3 text-sm text-green-800">
+                        Device terdeteksi di jaringan kantor. Klik tombol di bawah untuk membuka portal konfigurasi.
+                    </div>
 
-                <div class="flex flex-wrap items-center gap-3">
-                    <form method="POST" action="{{ route('settings.devices.wifi.start', $device) }}">
-                        @csrf
-                        <x-primary-button type="submit">
-                            Mulai Setup WiFi
-                        </x-primary-button>
-                    </form>
-
-                    <a href="{{ $portalUrl }}"
-                       target="_blank"
-                       rel="noopener noreferrer"
-                       class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-md font-semibold text-xs text-gray-700 uppercase tracking-widest shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition ease-in-out duration-150">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-                        </svg>
-                        Buka WiFi Manager
+                    <a href="http://{{ $device->last_ip }}/"
+                       class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-indigo-500 transition">
+                        Buka http://{{ $device->last_ip }}/
                     </a>
-                </div>
+                @else
+                    <div class="rounded-md bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-900 space-y-2">
+                        <p><strong>IP device belum diketahui</strong> — heartbeat belum sampai ke Laravel (device OFFLINE).</p>
+                        <p>Lakukan salah satu cara berikut:</p>
+                    </div>
 
-                <p class="text-xs text-gray-400">
-                    Portal WiFi device: <a href="{{ $portalUrl }}" target="_blank" rel="noopener noreferrer" class="text-indigo-600 hover:underline">{{ $portalUrl }}</a>.
-                    Hanya bisa diakses saat HP terhubung ke WiFi <strong>{{ $apName }}</strong>.
-                </p>
+                    <ol class="list-decimal list-inside space-y-2 text-sm text-gray-700">
+                        <li>Di keypad ESP32 tekan <strong>*</strong> lalu <strong>2</strong> → catat IP di LCD.</li>
+                        <li>Buka di browser PC: <strong>http://&lt;IP-device&gt;/</strong></li>
+                        <li>Atau tekan <strong>*</strong> lalu <strong>1</strong> → LCD menampilkan alamat portal.</li>
+                        <li>Pastikan <strong>Server URL</strong> = <code class="text-xs bg-gray-100 px-1 rounded">{{ rtrim(config('app.url'), '/') }}</code></li>
+                    </ol>
+
+                    <div class="rounded-md bg-gray-50 border border-gray-200 px-4 py-3 text-sm text-gray-700">
+                        <p class="font-medium text-gray-800 mb-1">Fallback: mode Access Point</p>
+                        <p class="text-xs text-gray-500 mb-3">Hanya jika device belum connect WiFi kantor.</p>
+                        <form method="POST" action="{{ route('settings.devices.wifi.start', $device) }}">
+                            @csrf
+                            <x-primary-button type="submit">
+                                Mulai Setup WiFi (AP Absensi-Setup)
+                            </x-primary-button>
+                        </form>
+                    </div>
+                @endif
             </div>
         </div>
     </div>

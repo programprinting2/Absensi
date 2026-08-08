@@ -129,6 +129,7 @@ Route::middleware(['auth', 'verified', 'menu'])->group(function () {
     Route::get('settings/devices/{device}/edit', [DeviceSettingsController::class, 'edit'])->name('settings.devices.edit');
     Route::put('settings/devices/{device}', [DeviceSettingsController::class, 'update'])->name('settings.devices.update');
     Route::get('settings/devices/{device}/wifi', [DeviceWifiController::class, 'show'])->name('settings.devices.wifi');
+    Route::get('settings/devices/{device}/wifi/portal', [DeviceWifiController::class, 'portal'])->name('settings.devices.wifi.portal');
     Route::post('settings/devices/{device}/wifi', [DeviceWifiController::class, 'start'])->name('settings.devices.wifi.start');
 
     Route::get('settings/parameters', [ParameterController::class, 'index'])->name('settings.parameters.index');

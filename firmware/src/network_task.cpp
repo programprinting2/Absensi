@@ -1,6 +1,8 @@
 #include "network_task.h"
 #include "config.h"
+#include "dashboard_client.h"
 #include "device_config.h"
+#include "server_config.h"
 #include "employee_cache.h"
 #include "fingerprint_handler.h"
 #include "supabase_client.h"
@@ -13,7 +15,7 @@ namespace {
 
 const unsigned long DEVICE_ID_RETRY_MS = 10000;
 const unsigned long EMPLOYEE_CACHE_REFRESH_MS = 5UL * 60UL * 1000UL;
-const unsigned long DEVICE_HEARTBEAT_MS = 60UL * 1000UL;
+const unsigned long DEVICE_HEARTBEAT_MS = 30UL * 1000UL;
 
 String deviceCodeToResolve;
 String deviceId;
@@ -48,7 +50,8 @@ void resolveDeviceId() {
     }
     lastAttemptMs = nowMs;
 
-    Serial.println(F("[net] Mencoba resolve device_id via DEVICE_CODE..."));
+    Serial.print(F("[net] Mencoba resolve device_id via device_code="));
+    Serial.println(deviceCodeToResolve);
     String resolved;
     if (supabase_client::getDeviceIdByCode(deviceCodeToResolve, resolved)) {
         Serial.print(F("[net] device_id resolved: "));
@@ -85,6 +88,14 @@ void taskLoop(void *param) {
             continue;
         }
 
+        // Heartbeat ke Laravel — independen dari resolve device_id (Supabase/PostgREST).
+        // Indikator ONLINE harus jalan meski data API belum/gagal connect.
+        unsigned long now = millis();
+        if (lastHeartbeatMs == 0 || now - lastHeartbeatMs >= DEVICE_HEARTBEAT_MS) {
+            dashboard_client::sendHeartbeat(fingerprint_handler::capacity());
+            lastHeartbeatMs = millis();
+        }
+
         if (!deviceIdResolved) {
             cachedQueueCount = sync_manager::pendingCount();
             resolveDeviceId();
@@ -94,8 +105,6 @@ void taskLoop(void *param) {
 
         sync_manager::loop();
         cachedQueueCount = sync_manager::pendingCount();
-
-        unsigned long now = millis();
 
         if (cacheRefreshRequested || now - lastCacheRefreshMs >= EMPLOYEE_CACHE_REFRESH_MS) {
             cacheRefreshRequested = false;
@@ -108,13 +117,6 @@ void taskLoop(void *param) {
                 serverReachable = true;
             }
             lastConfigRefreshMs = millis();
-        }
-
-        if (lastHeartbeatMs == 0 || now - lastHeartbeatMs >= DEVICE_HEARTBEAT_MS) {
-            if (supabase_client::updateDeviceStatus(deviceId, fingerprint_handler::capacity())) {
-                serverReachable = true;
-            }
-            lastHeartbeatMs = millis();
         }
 
         // Hasil command dari core 1 sudah siap? Laporkan ke server di sini,
@@ -173,8 +175,8 @@ void taskLoop(void *param) {
 
 } // namespace
 
-void begin(const String &deviceCode) {
-    deviceCodeToResolve = deviceCode;
+void begin() {
+    deviceCodeToResolve = server_config::deviceCode();
 
     xTaskCreatePinnedToCore(
         taskLoop,
@@ -185,6 +187,15 @@ void begin(const String &deviceCode) {
         nullptr,
         0    // core 0 (loop() Arduino jalan di core 1)
     );
+}
+
+void resetServerConnection() {
+    deviceIdResolved = false;
+    deviceId = "";
+    deviceCodeToResolve = server_config::deviceCode();
+    serverReachable = false;
+    lastHandledCommandId = "";
+    Serial.println(F("[net] server config berubah — resolve device_id ulang"));
 }
 
 bool isDeviceIdResolved() {

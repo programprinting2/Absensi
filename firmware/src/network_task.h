@@ -14,7 +14,10 @@
  */
 namespace network_task {
 
-void begin(const String &deviceId);
+void begin();
+
+// Reset resolve device_id setelah server config berubah lewat portal.
+void resetServerConnection();
 
 // True kalau device_id sudah berhasil di-resolve ke server.
 bool isDeviceIdResolved();

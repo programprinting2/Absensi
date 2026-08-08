@@ -178,19 +178,13 @@
                                                 </div>
 
                                                 <div class="mt-3 flex items-center gap-1">
-                                                    <form method="POST"
-                                                          action="{{ route('settings.devices.wifi.start', $device) }}"
-                                                          target="_blank"
-                                                          class="inline">
-                                                        @csrf
-                                                        <button type="submit"
-                                                                class="inline-flex items-center justify-center w-9 h-9 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 hover:text-indigo-600"
-                                                                title="Setup WiFi device (buka tab baru)">
-                                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-                                                            </svg>
-                                                        </button>
-                                                    </form>
+                                                    <a href="{{ route('settings.devices.wifi.portal', $device) }}"
+                                                       class="inline-flex items-center justify-center w-9 h-9 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 hover:text-indigo-600"
+                                                       title="Buka portal konfigurasi device{{ $device->last_ip ? ' ('.$device->last_ip.')' : ' — IP belum diketahui' }}">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
+                                                        </svg>
+                                                    </a>
                                                     <a href="{{ route('settings.devices.edit', $device) }}"
                                                        class="inline-flex items-center justify-center w-9 h-9 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                                                        title="Pengaturan device">
