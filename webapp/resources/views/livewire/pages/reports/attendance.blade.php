@@ -5,6 +5,8 @@ use App\Models\AttendanceLog;
 use App\Models\Device;
 use App\Models\Employee;
 use App\Models\WorkSchedule;
+use App\Services\AttendanceBreakEndFillService;
+use App\Services\AttendanceClockOutFillService;
 use App\Services\AttendanceDummyService;
 use App\Services\AttendanceReportService;
 use App\Support\AppTimezone;
@@ -38,6 +40,44 @@ new #[Layout('layouts.app')] class extends Component
     public ?string $editingCell = null;
 
     public string $editTimeValue = '';
+
+    public bool $showFillClockOutModal = false;
+
+    public string $fillEmployeeId = '';
+
+    public string $fillDate = '';
+
+    public string $fillEmployeeName = '';
+
+    public string $fillDateLabel = '';
+
+    public string $fillMode = 'schedule';
+
+    public string $fillPeerId = '';
+
+    /** @var list<array{id: string, full_name: string, employee_code: mixed, clock_out: string}> */
+    public array $fillPeers = [];
+
+    public string $fillScheduleTime = '';
+
+    public bool $showFillBreakEndModal = false;
+
+    public string $fillBreakEmployeeId = '';
+
+    public string $fillBreakDate = '';
+
+    public string $fillBreakEmployeeName = '';
+
+    public string $fillBreakDateLabel = '';
+
+    public string $fillBreakMode = 'allowance';
+
+    public string $fillBreakPeerId = '';
+
+    /** @var list<array{id: string, full_name: string, employee_code: mixed, break_end: string}> */
+    public array $fillBreakPeers = [];
+
+    public string $fillBreakAllowancePreview = '';
 
     public function mount(): void
     {
@@ -174,6 +214,112 @@ new #[Layout('layouts.app')] class extends Component
 
         $this->cancelEditCell();
         Toast::success('Jam absensi diperbarui.', $this);
+    }
+
+    public function openFillClockOut(string $employeeId, string $date, AttendanceClockOutFillService $filler): void
+    {
+        $employee = Employee::findOrFail($employeeId);
+        $schedule = WorkSchedule::active();
+
+        $this->fillEmployeeId = $employee->id;
+        $this->fillDate = $date;
+        $this->fillEmployeeName = $employee->full_name;
+        $this->fillDateLabel = Carbon::createFromFormat('Y-m-d', $date, AppTimezone::display())
+            ->locale('id')
+            ->translatedFormat('l, j M Y');
+        $this->fillMode = 'schedule';
+        $this->fillPeerId = '';
+        $this->fillPeers = $filler->peersWithClockOut($employee, $date);
+        $this->fillScheduleTime = substr((string) ($schedule?->clock_out_time ?: '17:00'), 0, 5);
+        $this->showFillClockOutModal = true;
+        $this->cancelEditCell();
+        $this->closeFillBreakEnd();
+    }
+
+    public function closeFillClockOut(): void
+    {
+        $this->showFillClockOutModal = false;
+        $this->fillEmployeeId = '';
+        $this->fillDate = '';
+        $this->fillPeerId = '';
+        $this->fillPeers = [];
+    }
+
+    public function saveFillClockOut(AttendanceClockOutFillService $filler): void
+    {
+        $this->validate([
+            'fillMode' => ['required', 'in:schedule,peer'],
+            'fillPeerId' => [$this->fillMode === 'peer' ? 'required' : 'nullable', 'string'],
+        ], [
+            'fillPeerId.required' => 'Pilih karyawan se-divisi yang jamnya akan disamakan.',
+        ]);
+
+        try {
+            $filler->fill(
+                $this->fillEmployeeId,
+                $this->fillDate,
+                $this->fillMode,
+                $this->fillMode === 'peer' ? $this->fillPeerId : null,
+                auth()->user()?->name,
+            );
+            $this->closeFillClockOut();
+            Toast::success('Jam pulang berhasil diisi oleh HRD.', $this);
+        } catch (\RuntimeException $e) {
+            Toast::error($e->getMessage(), $this);
+        }
+    }
+
+    public function openFillBreakEnd(string $employeeId, string $date, AttendanceBreakEndFillService $filler): void
+    {
+        $employee = Employee::findOrFail($employeeId);
+
+        $this->fillBreakEmployeeId = $employee->id;
+        $this->fillBreakDate = $date;
+        $this->fillBreakEmployeeName = $employee->full_name;
+        $this->fillBreakDateLabel = Carbon::createFromFormat('Y-m-d', $date, AppTimezone::display())
+            ->locale('id')
+            ->translatedFormat('l, j M Y');
+        $this->fillBreakMode = 'allowance';
+        $this->fillBreakPeerId = '';
+        $this->fillBreakPeers = $filler->peersWithBreakEnd($employee, $date);
+        $this->fillBreakAllowancePreview = $filler->allowancePreview($employee, $date) ?? '';
+        $this->showFillBreakEndModal = true;
+        $this->cancelEditCell();
+        $this->closeFillClockOut();
+    }
+
+    public function closeFillBreakEnd(): void
+    {
+        $this->showFillBreakEndModal = false;
+        $this->fillBreakEmployeeId = '';
+        $this->fillBreakDate = '';
+        $this->fillBreakPeerId = '';
+        $this->fillBreakPeers = [];
+        $this->fillBreakAllowancePreview = '';
+    }
+
+    public function saveFillBreakEnd(AttendanceBreakEndFillService $filler): void
+    {
+        $this->validate([
+            'fillBreakMode' => ['required', 'in:allowance,peer'],
+            'fillBreakPeerId' => [$this->fillBreakMode === 'peer' ? 'required' : 'nullable', 'string'],
+        ], [
+            'fillBreakPeerId.required' => 'Pilih karyawan se-divisi yang jamnya akan disamakan.',
+        ]);
+
+        try {
+            $filler->fill(
+                $this->fillBreakEmployeeId,
+                $this->fillBreakDate,
+                $this->fillBreakMode,
+                $this->fillBreakMode === 'peer' ? $this->fillBreakPeerId : null,
+                auth()->user()?->name,
+            );
+            $this->closeFillBreakEnd();
+            Toast::success('Jam kembali berhasil diisi oleh HRD.', $this);
+        } catch (\RuntimeException $e) {
+            Toast::error($e->getMessage(), $this);
+        }
     }
 
     public function deleteRow(string $employeeId, string $date): void
@@ -664,4 +810,148 @@ new #[Layout('layouts.app')] class extends Component
             @endif
         </div>
     </div>
+
+    @if ($showFillClockOutModal)
+        <div class="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/50 p-4" wire:click="closeFillClockOut">
+            <div class="relative w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden" wire:click.stop>
+                <div class="flex items-center justify-between px-6 py-3.5 border-b border-gray-200 bg-gray-50">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900">Isi jam pulang (HRD)</h3>
+                        <p class="text-xs text-gray-500 mt-0.5">{{ $fillEmployeeName }} · {{ $fillDateLabel }}</p>
+                    </div>
+                    <button type="button" wire:click="closeFillClockOut" class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                <form wire:submit="saveFillClockOut" class="p-6 space-y-4">
+                    <p class="text-sm text-gray-600">
+                        Status saat ini: <span class="font-medium text-amber-800">Tidak absen pulang</span>.
+                        Lembur tidak dihitung sampai jam pulang diisi.
+                    </p>
+
+                    <div class="space-y-3">
+                        <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
+                            <input type="radio" wire:model.live="fillMode" value="schedule" class="mt-1 border-gray-300 text-[#f7340d] focus:ring-[#f7340d]">
+                            <span>
+                                <span class="block text-sm font-medium text-gray-900">Jam pulang kantor</span>
+                                <span class="block text-xs text-gray-500 mt-0.5">Isi dengan jadwal kerja aktif: <span class="font-mono">{{ $fillScheduleTime }}</span></span>
+                            </span>
+                        </label>
+
+                        <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
+                            <input type="radio" wire:model.live="fillMode" value="peer" class="mt-1 border-gray-300 text-[#f7340d] focus:ring-[#f7340d]">
+                            <span class="block text-sm font-medium text-gray-900">Samakan dengan karyawan se-divisi</span>
+                        </label>
+                    </div>
+
+                    @if ($fillMode === 'peer')
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Pilih karyawan acuan</label>
+                            @if (count($fillPeers) === 0)
+                                <p class="mt-2 text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2">
+                                    Tidak ada rekan se-divisi yang sudah absen pulang di tanggal ini, atau departemen karyawan kosong.
+                                </p>
+                            @else
+                                <select wire:model="fillPeerId" class="mt-1 block w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                    <option value="">— Pilih karyawan —</option>
+                                    @foreach ($fillPeers as $peer)
+                                        <option value="{{ $peer['id'] }}">
+                                            {{ $peer['full_name'] }} ({{ $peer['clock_out'] }})
+                                        </option>
+                                    @endforeach
+                                </select>
+                                @error('fillPeerId') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                            @endif
+                        </div>
+                    @endif
+
+                    <div class="flex justify-end gap-3 pt-2">
+                        <button type="button" wire:click="closeFillClockOut" class="px-4 py-2 text-xs font-semibold uppercase border border-gray-300 rounded-md bg-white text-gray-700">Batal</button>
+                        <button
+                            type="submit"
+                            @disabled($fillMode === 'peer' && count($fillPeers) === 0)
+                            class="px-4 py-2 text-xs font-semibold uppercase rounded-md bg-[#f7340d] text-white hover:bg-[#d92c0a] disabled:opacity-50"
+                        >
+                            Simpan
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
+
+    @if ($showFillBreakEndModal)
+        <div class="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/50 p-4" wire:click="closeFillBreakEnd">
+            <div class="relative w-full max-w-md bg-white rounded-xl shadow-2xl overflow-hidden" wire:click.stop>
+                <div class="flex items-center justify-between px-6 py-3.5 border-b border-gray-200 bg-gray-50">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900">Isi jam kembali (HRD)</h3>
+                        <p class="text-xs text-gray-500 mt-0.5">{{ $fillBreakEmployeeName }} · {{ $fillBreakDateLabel }}</p>
+                    </div>
+                    <button type="button" wire:click="closeFillBreakEnd" class="text-gray-400 hover:text-gray-600">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                </div>
+                <form wire:submit="saveFillBreakEnd" class="p-6 space-y-4">
+                    <p class="text-sm text-gray-600">
+                        Status saat ini: <span class="font-medium text-amber-800">Tidak absen kembali</span>.
+                        Over break / jam kerja belum dihitung sampai jam kembali diisi.
+                    </p>
+
+                    <div class="space-y-3">
+                        <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
+                            <input type="radio" wire:model.live="fillBreakMode" value="allowance" class="mt-1 border-gray-300 text-[#f7340d] focus:ring-[#f7340d]">
+                            <span>
+                                <span class="block text-sm font-medium text-gray-900">Sesuai jatah istirahat</span>
+                                <span class="block text-xs text-gray-500 mt-0.5">
+                                    @if ($fillBreakAllowancePreview)
+                                        {{ $fillBreakAllowancePreview }}
+                                    @else
+                                        Mulai istirahat + durasi jadwal
+                                    @endif
+                                </span>
+                            </span>
+                        </label>
+
+                        <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
+                            <input type="radio" wire:model.live="fillBreakMode" value="peer" class="mt-1 border-gray-300 text-[#f7340d] focus:ring-[#f7340d]">
+                            <span class="block text-sm font-medium text-gray-900">Samakan dengan karyawan se-divisi</span>
+                        </label>
+                    </div>
+
+                    @if ($fillBreakMode === 'peer')
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Pilih karyawan acuan</label>
+                            @if (count($fillBreakPeers) === 0)
+                                <p class="mt-2 text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2">
+                                    Tidak ada rekan se-divisi yang sudah absen kembali di tanggal ini, atau departemen karyawan kosong.
+                                </p>
+                            @else
+                                <select wire:model="fillBreakPeerId" class="mt-1 block w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                    <option value="">— Pilih karyawan —</option>
+                                    @foreach ($fillBreakPeers as $peer)
+                                        <option value="{{ $peer['id'] }}">
+                                            {{ $peer['full_name'] }} ({{ $peer['break_end'] }})
+                                        </option>
+                                    @endforeach
+                                </select>
+                                @error('fillBreakPeerId') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                            @endif
+                        </div>
+                    @endif
+
+                    <div class="flex justify-end gap-3 pt-2">
+                        <button type="button" wire:click="closeFillBreakEnd" class="px-4 py-2 text-xs font-semibold uppercase border border-gray-300 rounded-md bg-white text-gray-700">Batal</button>
+                        <button
+                            type="submit"
+                            @disabled($fillBreakMode === 'peer' && count($fillBreakPeers) === 0)
+                            class="px-4 py-2 text-xs font-semibold uppercase rounded-md bg-[#f7340d] text-white hover:bg-[#d92c0a] disabled:opacity-50"
+                        >
+                            Simpan
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    @endif
 </div>

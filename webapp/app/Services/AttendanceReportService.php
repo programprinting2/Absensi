@@ -281,33 +281,56 @@ class AttendanceReportService
         $latestType = null;
         $breakMinutes = null;
 
-        foreach ($logs as $log) {
-            $local = $this->toLocal($log->event_time);
-            $row[$log->attendance_type] = $local->format('H:i');
-            $latestType = $log->attendance_type;
+        // Per jenis absensi: pakai kejadian pertama (paling awal).
+        // Status hari ini tetap mengikuti log terakhir secara kronologis.
+        foreach ($logs->sortBy('event_time') as $log) {
+            $type = $log->attendance_type;
+            if (! in_array($type, ['clock_in', 'break_start', 'break_end', 'clock_out'], true)) {
+                continue;
+            }
 
-            if ($log->attendance_type === 'clock_in') {
+            $local = $this->toLocal($log->event_time);
+            $latestType = $type;
+
+            if ($row[$type] !== null) {
+                continue;
+            }
+
+            $row[$type] = $local->format('H:i');
+
+            if ($type === 'clock_in') {
                 $clockInAt = $local;
-            } elseif ($log->attendance_type === 'break_start') {
+            } elseif ($type === 'break_start') {
                 $breakStartAt = $local;
-            } elseif ($log->attendance_type === 'break_end') {
+            } elseif ($type === 'break_end') {
                 $breakEndAt = $local;
-            } elseif ($log->attendance_type === 'clock_out') {
+            } elseif ($type === 'clock_out') {
                 $clockOutAt = $local;
             }
         }
 
         $netMinutes = null;
         $required = (int) ($schedule?->work_duration_minutes ?? 0);
+        $allowedBreak = (int) ($schedule?->break_duration_minutes ?? 0);
 
+        // Pasangan istirahat lengkap → hitung durasi & over break.
         if ($breakStartAt && $breakEndAt && $breakEndAt->greaterThan($breakStartAt)) {
             $breakMinutes = (int) round(abs($breakStartAt->diffInMinutes($breakEndAt)));
             $row['break_duration'] = $this->formatDuration($breakMinutes);
 
-            if ($schedule && $breakMinutes > (int) $schedule->break_duration_minutes) {
+            if ($schedule && $breakMinutes > $allowedBreak) {
                 $row['is_over_break'] = true;
             }
         }
+
+        // Sudah absen istirahat (keluar) tapi belum kembali.
+        $missingBreakEnd = filled($row['break_start'])
+            && blank($row['break_end'])
+            && $this->requiresBreakEnd($date, $schedule, $breakStartAt);
+
+        $row['missing_break_end'] = $missingBreakEnd;
+        $row['orphan_break_end'] = blank($row['break_start']) && filled($row['break_end']);
+        $row['break_on_site'] = blank($row['break_start']) && blank($row['break_end']) && filled($row['clock_in']);
 
         if ($schedule) {
             $lateThreshold = $schedule->late_after_time ?: $schedule->clock_in_time;
@@ -321,15 +344,19 @@ class AttendanceReportService
                 $row['early_out_minutes'] = $this->timeToMinutes($schedule->clock_out_time) - $this->timeToMinutes($row['clock_out']);
             }
 
-            if ($clockInAt && $clockOutAt && $clockOutAt->greaterThan($clockInAt)) {
+            // Jam kerja hanya dihitung jika absen pulang lengkap & tidak menunggu kembali istirahat.
+            if ($clockInAt && $clockOutAt && $clockOutAt->greaterThan($clockInAt) && ! $missingBreakEnd) {
                 $grossMinutes = (int) round(abs($clockInAt->diffInMinutes($clockOutAt)));
-                $allowedBreak = (int) ($schedule->break_duration_minutes ?? 0);
-                $actualBreak = (int) ($breakMinutes ?? 0);
 
-                // Istirahat dalam jatah dikurangi dari span (bukan jam kerja).
-                // Over break tidak ikut mengurangi jam kerja di sini — dilapor terpisah.
-                $breakForNet = min($actualBreak, $allowedBreak);
-                $netMinutes = $grossMinutes - $breakForNet;
+                if ($breakMinutes !== null) {
+                    // Keluar istirahat (ada pasangan scan): potong min(aktual, jatah).
+                    $breakForNet = min($breakMinutes, $allowedBreak);
+                } else {
+                    // Istirahat di kantor (tanpa scan): potong jatah jadwal.
+                    $breakForNet = $allowedBreak;
+                }
+
+                $netMinutes = max(0, $grossMinutes - $breakForNet);
                 $row['net_work_minutes'] = $netMinutes;
 
                 if ($required > 0 && $netMinutes < $required) {
@@ -343,17 +370,44 @@ class AttendanceReportService
             }
 
             if ($row['is_over_break'] && $breakMinutes !== null) {
-                $row['over_break_minutes'] = $breakMinutes - (int) $schedule->break_duration_minutes;
+                $row['over_break_minutes'] = $breakMinutes - $allowedBreak;
             }
         }
 
-        $row['status'] = match ($latestType) {
-            null => 'Off',
-            'clock_in', 'break_end' => 'Bekerja',
-            'break_start' => 'Istirahat',
-            'clock_out' => 'Pulang',
-            default => 'Off',
-        };
+        $missingClockOut = $this->requiresClockOut($date, $schedule)
+            && filled($row['clock_in'])
+            && blank($row['clock_out']);
+
+        $row['missing_clock_out'] = $missingClockOut;
+
+        // Tanpa absen pulang / tanpa absen kembali: jangan hitung jam kerja / lembur / jam kurang / over break spekulatif.
+        if ($missingClockOut || $missingBreakEnd) {
+            unset(
+                $row['net_work_minutes'],
+                $row['overtime_minutes'],
+                $row['short_work_minutes'],
+                $row['over_break_minutes'],
+            );
+            $row['is_short_work'] = false;
+            $row['is_early_out'] = false;
+            $row['is_over_break'] = false;
+            unset($row['early_out_minutes']);
+            $netMinutes = null;
+        }
+
+        if ($missingBreakEnd) {
+            $row['status'] = 'Tidak absen kembali';
+        } elseif ($missingClockOut) {
+            $row['status'] = 'Tidak absen pulang';
+        } else {
+            $row['status'] = match ($latestType) {
+                null => 'Off',
+                'clock_in', 'break_end' => 'Bekerja',
+                'break_start' => 'Istirahat',
+                'clock_out' => 'Pulang',
+                default => 'Off',
+            };
+        }
 
         $row['status_parts'] = $this->buildStatusParts($row, $netMinutes, $schedule, $date);
         $row = array_merge($row, $this->evaluateCompliance($row, $date, $schedule));
@@ -446,7 +500,27 @@ class AttendanceReportService
 
         if ($this->requiresClockOut($date, $schedule) && $row['clock_in'] && ! $row['clock_out']) {
             $parts[] = [
-                'label' => 'Kerja',
+                'label' => 'Tidak absen pulang',
+                'ok' => false,
+                'display' => null,
+                'negative' => false,
+                'metric' => false,
+            ];
+        }
+
+        if (! empty($row['missing_break_end'])) {
+            $parts[] = [
+                'label' => 'Tidak absen kembali',
+                'ok' => false,
+                'display' => null,
+                'negative' => false,
+                'metric' => false,
+            ];
+        }
+
+        if (! empty($row['orphan_break_end'])) {
+            $parts[] = [
+                'label' => 'Kembali tanpa Istirahat',
                 'ok' => false,
                 'display' => null,
                 'negative' => false,
@@ -496,7 +570,15 @@ class AttendanceReportService
         }
 
         if ($this->requiresClockOut($date, $schedule) && ($row['clock_in'] ?? null) && ! ($row['clock_out'] ?? null)) {
-            $issues[] = 'Kerja = Not OK';
+            $issues[] = 'Tidak absen pulang (menunggu HRD)';
+        }
+
+        if (! empty($row['missing_break_end'])) {
+            $issues[] = 'Tidak absen kembali (menunggu HRD)';
+        }
+
+        if (! empty($row['orphan_break_end'])) {
+            $issues[] = 'Kembali tanpa absen Istirahat';
         }
 
         $hasAttendance = (bool) (($row['clock_in'] ?? null) || ($row['clock_out'] ?? null));
@@ -505,6 +587,38 @@ class AttendanceReportService
             'compliance_ok' => $hasAttendance && $issues === [],
             'compliance_issues' => $issues,
         ];
+    }
+
+    /**
+     * Absen kembali wajib dicek setelah jatah istirahat habis,
+     * atau setelah jam pulang jadwal / tanggal yang sudah lewat.
+     */
+    private function requiresBreakEnd(?string $date, ?WorkSchedule $schedule, ?Carbon $breakStartAt): bool
+    {
+        if (! $date || ! $breakStartAt) {
+            return false;
+        }
+
+        $today = AppTimezone::nowDisplay()->toDateString();
+
+        if ($date < $today) {
+            return true;
+        }
+
+        if ($date > $today) {
+            return false;
+        }
+
+        $allowed = (int) ($schedule?->break_duration_minutes ?? 0);
+        $deadline = $breakStartAt->copy()->addMinutes(max(0, $allowed));
+        $now = AppTimezone::nowDisplay();
+
+        if ($now->greaterThanOrEqualTo($deadline)) {
+            return true;
+        }
+
+        // Atau sudah lewat jam pulang kantor.
+        return $this->requiresClockOut($date, $schedule);
     }
 
     /**
