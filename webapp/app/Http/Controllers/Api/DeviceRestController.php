@@ -55,6 +55,11 @@ class DeviceRestController extends Controller
             $query->select($columns);
         }
 
+        $order = $request->query('order');
+        if (is_string($order) && preg_match('/^(.+)\.(asc|desc)$/i', $order, $m)) {
+            $query->orderBy($m[1], strtolower($m[2]));
+        }
+
         $rows = $query->get();
 
         if ($table === 'employees') {
@@ -145,7 +150,7 @@ class DeviceRestController extends Controller
     private function applyEqFilters($query, array $params): void
     {
         foreach ($params as $key => $value) {
-            if ($key === 'select') {
+            if (in_array($key, ['select', 'order'], true)) {
                 continue;
             }
 
@@ -153,11 +158,25 @@ class DeviceRestController extends Controller
                 continue;
             }
 
-            if (preg_match('/^(.+)\\.eq\\.(.+)$/', $key, $m)) {
-                $column = $m[1];
-                $filterValue = $m[2] === 'true' ? true : ($m[2] === 'false' ? false : $m[2]);
-                $query->where($column, $filterValue);
+            // PostgREST: ?column=eq.value
+            if (is_string($value) && preg_match('/^eq\.(.+)$/', $value, $m)) {
+                $query->where($key, $this->parseFilterValue($m[1]));
+                continue;
+            }
+
+            // Alternatif: ?column.eq.value
+            if (preg_match('/^(.+)\.eq\.(.+)$/', $key, $m)) {
+                $query->where($m[1], $this->parseFilterValue($m[2]));
             }
         }
+    }
+
+    private function parseFilterValue(string $raw): mixed
+    {
+        return match ($raw) {
+            'true' => true,
+            'false' => false,
+            default => $raw,
+        };
     }
 }

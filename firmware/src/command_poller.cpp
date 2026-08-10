@@ -81,8 +81,8 @@ bool poll(PendingCommand &outCommand) {
     return true;
 }
 
-void markInProgress(const String &commandId) {
-    supabase_client::updateCommandStatus(commandId, "in_progress", "");
+bool markInProgress(const String &commandId) {
+    return supabase_client::updateCommandStatus(commandId, "in_progress", "");
 }
 
 void markCompleted(const String &commandId, int slotId) {

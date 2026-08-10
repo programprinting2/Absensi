@@ -208,7 +208,7 @@ bool fetchPendingCommands(const String &deviceId, String &outJson) {
     WiFiClient plainClient;
     WiFiClientSecure secureClient;
     HTTPClient http;
-    String url = restUrl("device_commands?device_id=eq." + deviceId + "&status=eq.pending&select=*");
+    String url = restUrl("device_commands?device_id=eq." + deviceId + "&status=eq.pending&select=*&order=created_at.asc");
     if (!beginHttp(http, plainClient, secureClient, url)) {
         return false;
     }

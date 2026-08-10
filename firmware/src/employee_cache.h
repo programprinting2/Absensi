@@ -25,6 +25,9 @@ bool findByEmployeeCode(int code, Employee &out);
 bool findByEmployeeId(const String &id, Employee &out);
 bool findBySlotId(int slotId, Employee &out);
 
+// True jika karyawan sudah punya mapping sidik jari di cache device ini.
+bool findSlotForEmployee(const String &employeeId, int &outSlotId);
+
 // Slot sidik jari terendah (1..maxSlots) yang belum dipetakan di cache device
 // ini. Jangan scan flash sensor pakai loadModel() — modul ZW111 klon tidak
 // andal untuk command itu dan bisa bikin UART macet.
