@@ -142,6 +142,8 @@ void taskLoop(void *param) {
                         lastCacheRefreshMs = millis();
                     } else {
                         command_poller::markCompletedSimple(result.commandId);
+                        employee_cache::refresh(deviceId);
+                        lastCacheRefreshMs = millis();
                     }
                 } else {
                     command_poller::markFailed(result.commandId, "Gagal menyimpan mapping ke server");
@@ -156,9 +158,11 @@ void taskLoop(void *param) {
         if (!hasPendingCommand && !commandInFlight) {
             command_poller::PendingCommand cmd;
             if (command_poller::poll(cmd) && cmd.id != lastHandledCommandId) {
-                // Tandai in_progress DI SINI (core 0) supaya command langsung
-                // keluar dari daftar pending dan tidak terambil dua kali.
-                command_poller::markInProgress(cmd.id);
+                if (!command_poller::markInProgress(cmd.id)) {
+                    Serial.println(F("[net] markInProgress gagal — command tetap pending"));
+                    vTaskDelay(pdMS_TO_TICKS(200));
+                    continue;
+                }
                 lastHandledCommandId = cmd.id;
 
                 portENTER_CRITICAL(&commandMux);

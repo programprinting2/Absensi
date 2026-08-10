@@ -238,7 +238,7 @@ new #[Layout('layouts.app')] class extends Component
             'command_type' => 'enroll_fingerprint',
             'payload' => [
                 'employee_id' => $employee->id,
-                'fingerprint_slot_id' => $slotId,
+                'employee_code' => $employee->employee_code,
             ],
             'status' => 'pending',
             'created_by' => auth()->user()?->email,

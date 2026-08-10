@@ -20,7 +20,7 @@ void begin(const String &deviceId);
 // Return true jika ada command yang perlu diproses, isi outCommand.
 bool poll(PendingCommand &outCommand);
 
-void markInProgress(const String &commandId);
+bool markInProgress(const String &commandId);
 void markCompleted(const String &commandId, int slotId);
 void markCompletedSimple(const String &commandId);
 void markFailed(const String &commandId, const String &reason);

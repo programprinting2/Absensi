@@ -164,6 +164,19 @@ bool findBySlotId(int slotId, Employee &out) {
     return false;
 }
 
+bool findSlotForEmployee(const String &employeeId, int &outSlotId) {
+    if (employeeId.length() == 0) {
+        return false;
+    }
+    for (JsonObject obj : templateArray()) {
+        if (obj["employee_id"].as<String>() == employeeId) {
+            outSlotId = obj["fingerprint_slot_id"].as<int>();
+            return true;
+        }
+    }
+    return false;
+}
+
 bool verifyPin(const String &employeeId, const String &pin) {
     for (JsonObject obj : employeeArray()) {
         if (obj["id"].as<String>() != employeeId) {
