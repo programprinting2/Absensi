@@ -4,11 +4,11 @@ use App\Models\AttendanceDayReason;
 use App\Models\AttendanceLog;
 use App\Models\Device;
 use App\Models\Employee;
-use App\Models\WorkSchedule;
 use App\Services\AttendanceBreakEndFillService;
 use App\Services\AttendanceClockOutFillService;
 use App\Services\AttendanceDummyService;
 use App\Services\AttendanceReportService;
+use App\Services\ShiftResolver;
 use App\Support\AppTimezone;
 use App\Support\Toast;
 use Illuminate\Support\Carbon;
@@ -59,6 +59,8 @@ new #[Layout('layouts.app')] class extends Component
     public array $fillPeers = [];
 
     public string $fillScheduleTime = '';
+
+    public string $fillShiftName = '';
 
     public bool $showFillBreakEndModal = false;
 
@@ -219,7 +221,7 @@ new #[Layout('layouts.app')] class extends Component
     public function openFillClockOut(string $employeeId, string $date, AttendanceClockOutFillService $filler): void
     {
         $employee = Employee::findOrFail($employeeId);
-        $schedule = WorkSchedule::active();
+        $schedule = app(ShiftResolver::class)->forEmployeeOnDate($employee, $date);
 
         $this->fillEmployeeId = $employee->id;
         $this->fillDate = $date;
@@ -231,6 +233,7 @@ new #[Layout('layouts.app')] class extends Component
         $this->fillPeerId = '';
         $this->fillPeers = $filler->peersWithClockOut($employee, $date);
         $this->fillScheduleTime = substr((string) ($schedule?->clock_out_time ?: '17:00'), 0, 5);
+        $this->fillShiftName = (string) ($schedule?->name ?? '');
         $this->showFillClockOutModal = true;
         $this->cancelEditCell();
         $this->closeFillBreakEnd();
@@ -391,7 +394,7 @@ new #[Layout('layouts.app')] class extends Component
 
         $rows = $reports->pivotByEmployeeAndDate(
             $logs,
-            WorkSchedule::active(),
+            null,
             $employeesForAbsence,
             $rangeStart,
             $rangeEnd,
@@ -833,14 +836,17 @@ new #[Layout('layouts.app')] class extends Component
                         <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
                             <input type="radio" wire:model.live="fillMode" value="schedule" class="mt-1 border-gray-300 text-[#f7340d] focus:ring-[#f7340d]">
                             <span>
-                                <span class="block text-sm font-medium text-gray-900">Jam pulang kantor</span>
-                                <span class="block text-xs text-gray-500 mt-0.5">Isi dengan jadwal kerja aktif: <span class="font-mono">{{ $fillScheduleTime }}</span></span>
+                                <span class="block text-sm font-medium text-gray-900">Jam pulang shift</span>
+                                <span class="block text-xs text-gray-500 mt-0.5">
+                                    Isi dengan jadwal shift karyawan{{ $fillShiftName !== '' ? ' ('.$fillShiftName.')' : '' }}:
+                                    <span class="font-mono">{{ $fillScheduleTime }}</span>
+                                </span>
                             </span>
                         </label>
 
                         <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
                             <input type="radio" wire:model.live="fillMode" value="peer" class="mt-1 border-gray-300 text-[#f7340d] focus:ring-[#f7340d]">
-                            <span class="block text-sm font-medium text-gray-900">Samakan dengan karyawan se-divisi</span>
+                            <span class="block text-sm font-medium text-gray-900">Samakan dengan se-divisi &amp; se-shift</span>
                         </label>
                     </div>
 
@@ -849,7 +855,7 @@ new #[Layout('layouts.app')] class extends Component
                             <label class="block text-sm font-medium text-gray-700">Pilih karyawan acuan</label>
                             @if (count($fillPeers) === 0)
                                 <p class="mt-2 text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2">
-                                    Tidak ada rekan se-divisi yang sudah absen pulang di tanggal ini, atau departemen karyawan kosong.
+                                    Tidak ada rekan se-divisi se-shift yang sudah absen pulang di tanggal ini, atau departemen karyawan kosong.
                                 </p>
                             @else
                                 <select wire:model="fillPeerId" class="mt-1 block w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
@@ -915,7 +921,7 @@ new #[Layout('layouts.app')] class extends Component
 
                         <label class="flex items-start gap-3 rounded-lg border border-gray-200 p-3 cursor-pointer hover:bg-gray-50">
                             <input type="radio" wire:model.live="fillBreakMode" value="peer" class="mt-1 border-gray-300 text-[#f7340d] focus:ring-[#f7340d]">
-                            <span class="block text-sm font-medium text-gray-900">Samakan dengan karyawan se-divisi</span>
+                            <span class="block text-sm font-medium text-gray-900">Samakan dengan se-divisi &amp; se-shift</span>
                         </label>
                     </div>
 
@@ -924,7 +930,7 @@ new #[Layout('layouts.app')] class extends Component
                             <label class="block text-sm font-medium text-gray-700">Pilih karyawan acuan</label>
                             @if (count($fillBreakPeers) === 0)
                                 <p class="mt-2 text-sm text-amber-800 bg-amber-50 border border-amber-100 rounded-md px-3 py-2">
-                                    Tidak ada rekan se-divisi yang sudah absen kembali di tanggal ini, atau departemen karyawan kosong.
+                                    Tidak ada rekan se-divisi se-shift yang sudah absen kembali di tanggal ini, atau departemen karyawan kosong.
                                 </p>
                             @else
                                 <select wire:model="fillBreakPeerId" class="mt-1 block w-full rounded-md border-gray-300 text-sm shadow-sm focus:border-indigo-500 focus:ring-indigo-500">

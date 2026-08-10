@@ -216,9 +216,19 @@
                     {{-- Tab: Parameter --}}
                     @include('settings._parameter-manager')
 
-                    {{-- Tab: Jam Kerja --}}
+                    {{-- Tab: Jam Kerja (dipindah ke Shift Kerja) --}}
                     <div x-show="activeTab === 'jam-kerja'" x-cloak class="flex-1 overflow-y-auto p-6">
-                        @include('settings._work-schedules')
+                        <div class="max-w-lg rounded-lg border border-gray-200 bg-gray-50 p-6">
+                            <h3 class="text-base font-semibold text-gray-900">Pindah ke Shift Kerja</h3>
+                            <p class="text-sm text-gray-600 mt-2">
+                                Rule shift, penempatan karyawan, tukar shift, dan rolling kini dikelola di menu
+                                <strong>Shift Kerja</strong>.
+                            </p>
+                            <a href="{{ route('shifts.index', ['tab' => 'rules']) }}"
+                               class="mt-4 inline-flex items-center rounded-md bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800">
+                                Buka Shift Kerja
+                            </a>
+                        </div>
                     </div>
 
                     {{-- Tab: Identitas Usaha --}}

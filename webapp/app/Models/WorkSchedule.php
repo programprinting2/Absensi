@@ -18,6 +18,7 @@ class WorkSchedule extends Model
         'break_duration_minutes',
         'work_duration_minutes',
         'late_after_time',
+        'crosses_midnight',
         'is_active',
     ];
 
@@ -25,12 +26,21 @@ class WorkSchedule extends Model
     {
         return [
             'is_active' => 'boolean',
+            'crosses_midnight' => 'boolean',
             'created_at' => 'datetime',
         ];
     }
 
+    /**
+     * Jadwal default perusahaan (fallback jika karyawan belum punya assignment).
+     */
     public static function active(): ?self
     {
         return once(fn () => static::where('is_active', true)->first());
+    }
+
+    public function assignments()
+    {
+        return $this->hasMany(EmployeeShiftAssignment::class, 'work_schedule_id');
     }
 }

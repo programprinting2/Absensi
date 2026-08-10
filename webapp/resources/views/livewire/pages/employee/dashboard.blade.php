@@ -1,7 +1,6 @@
 <?php
 
 use App\Models\AttendanceDayReason;
-use App\Models\WorkSchedule;
 use App\Services\AttendanceReportService;
 use App\Support\AppTimezone;
 use App\Support\Toast;
@@ -57,7 +56,7 @@ new #[Layout('layouts.app')] class extends Component
 
         $row = $reports->pivotByEmployeeAndDate(
             $logs,
-            WorkSchedule::active(),
+            null,
             collect([$employee]),
             $rangeStart,
             $rangeEnd,
@@ -200,7 +199,7 @@ new #[Layout('layouts.app')] class extends Component
 
         $rows = $reports->pivotByEmployeeAndDate(
             $logs,
-            WorkSchedule::active(),
+            null,
             collect([$employee]),
             $rangeStart,
             $rangeEnd,

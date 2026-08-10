@@ -12,7 +12,12 @@
     'bg-red-50/40' => ($row['status'] ?? '') === 'Tidak Masuk',
     'bg-amber-50/50' => $missingOut || $missingBreakEnd,
 ])>
-    <td class="px-6 py-3 whitespace-nowrap text-gray-700">{{ $row['date_label'] }}</td>
+    <td class="px-6 py-3 whitespace-nowrap text-gray-700">
+        <div>{{ $row['date_label'] }}</div>
+        @if (! empty($row['shift_name']))
+            <div class="text-xs text-gray-400 mt-0.5">{{ $row['shift_name'] }}</div>
+        @endif
+    </td>
     @if (! empty($showEmployeeColumn))
         <td class="px-6 py-3 whitespace-nowrap font-medium text-gray-900">{{ $row['employee']->full_name }}</td>
     @endif

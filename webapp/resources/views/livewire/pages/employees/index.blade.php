@@ -3,7 +3,10 @@
 use App\Models\Device;
 use App\Models\Employee;
 use App\Models\User;
+use App\Models\WorkSchedule;
 use App\Services\ParameterService;
+use App\Services\ShiftResolver;
+use App\Support\AppTimezone;
 use App\Support\Toast;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Layout;
@@ -140,6 +143,17 @@ new #[Layout('layouts.app')] class extends Component
                 ]
             ));
             $employee->save();
+
+            // Karyawan baru mulai di jadwal default; penempatan khusus lewat menu Shift Kerja.
+            $defaultSchedule = WorkSchedule::active() ?? WorkSchedule::query()->orderBy('created_at')->first();
+            if ($defaultSchedule) {
+                app(ShiftResolver::class)->assign(
+                    $employee,
+                    $defaultSchedule,
+                    $data['join_date'] ?? AppTimezone::nowDisplay()->toDateString(),
+                );
+            }
+
             Toast::success('Karyawan berhasil ditambahkan.', $this);
         }
 

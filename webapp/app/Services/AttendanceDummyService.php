@@ -47,8 +47,6 @@ class AttendanceDummyService
                 'is_active' => true,
             ]);
 
-        $schedule = WorkSchedule::active();
-
         $employees = Employee::query()
             ->where('is_active', true)
             ->when($employeeId, fn ($q) => $q->where('id', $employeeId))
@@ -72,6 +70,7 @@ class AttendanceDummyService
             $workDays->push($date->copy()->startOfDay());
         }
 
+        $resolver = app(ShiftResolver::class);
         $createdLogs = 0;
         $skippedDays = 0;
 
@@ -99,6 +98,7 @@ class AttendanceDummyService
                     ->where('raw_notes', self::NOTES_MARKER)
                     ->delete();
 
+                $schedule = $resolver->forEmployeeOnDate($employee, $date);
                 $createdLogs += $this->seedDay($device, $employee, $date, $now, $schedule);
             }
         }

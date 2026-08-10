@@ -56,6 +56,11 @@ class Employee extends Model
         return $this->hasMany(AttendanceLog::class);
     }
 
+    public function shiftAssignments()
+    {
+        return $this->hasMany(EmployeeShiftAssignment::class);
+    }
+
     public function salaries()
     {
         return $this->hasMany(EmployeeSalary::class);

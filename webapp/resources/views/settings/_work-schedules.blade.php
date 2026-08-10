@@ -15,7 +15,9 @@
 <div class="mb-5">
     <h3 class="text-base font-semibold text-gray-900">Profil Jam Kerja</h3>
     <p class="text-sm text-gray-500 mt-0.5">
-        Buat beberapa profil (mis. Normal, Puasa). Hanya <strong>satu profil aktif</strong> yang dipakai sebagai acuan telat &amp; jam kerja di absensi/laporan.
+        Buat beberapa profil shift (mis. Normal, Malam, Puasa). Profil bertanda <strong>Aktif</strong> adalah
+        <strong>jadwal default perusahaan</strong> (fallback jika karyawan belum punya assignment shift).
+        Perhitungan absensi/payroll memakai shift masing-masing karyawan.
     </p>
 </div>
 
@@ -53,7 +55,7 @@
     <div class="px-4 py-3 border-b border-gray-100 bg-gray-50 flex flex-wrap items-center justify-between gap-3">
         <div>
             <h4 class="text-sm font-semibold text-gray-800">Daftar profil</h4>
-            <p class="text-xs text-gray-500 mt-0.5">Aktifkan profil yang sesuai periode kerja saat ini.</p>
+            <p class="text-xs text-gray-500 mt-0.5">Tandai satu profil sebagai default perusahaan (fallback karyawan tanpa shift).</p>
         </div>
         <x-primary-button type="button" x-data="" x-on:click.prevent="$dispatch('open-modal', 'create-work-schedule')">
             Buat Profil
@@ -85,12 +87,12 @@
                         <td class="px-4 py-3 tabular-nums text-gray-700">{{ $fmtTime($row->late_after_time ?: $row->clock_in_time) }}</td>
                         <td class="px-4 py-3">
                             @if ($row->is_active)
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Aktif</span>
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Default</span>
                             @else
                                 <form method="POST" action="{{ route('work-schedule.activate', $row) }}">
                                     @csrf
-                                    <button type="submit" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 hover:bg-indigo-50 hover:text-indigo-700 transition" title="Aktifkan profil ini">
-                                        Aktifkan
+                                    <button type="submit" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 hover:bg-indigo-50 hover:text-indigo-700 transition" title="Jadikan default perusahaan">
+                                        Jadikan default
                                     </button>
                                 </form>
                             @endif
@@ -141,7 +143,8 @@
 
     <div class="px-4 py-3 border-t border-gray-100 bg-gray-50">
         <p class="text-xs text-gray-500">
-            Jenis absensi (Masuk / Istirahat / Kembali / Pulang) dipilih di keypad device. Profil aktif dipakai sebagai acuan telat, istirahat lebih, dan jam kerja di laporan.
+            Jenis absensi (Masuk / Istirahat / Kembali / Pulang) dipilih di keypad device.
+            Acuan telat / istirahat / jam kerja mengikuti <strong>shift masing-masing karyawan</strong>; profil Aktif hanya sebagai default perusahaan.
         </p>
     </div>
 

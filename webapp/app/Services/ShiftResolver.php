@@ -1,0 +1,263 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\Employee;
+use App\Models\EmployeeShiftAssignment;
+use App\Models\WorkSchedule;
+use App\Support\AppTimezone;
+use Illuminate\Support\Carbon;
+
+class ShiftResolver
+{
+    /** @var array<string, ?WorkSchedule> */
+    private array $scheduleCache = [];
+
+    public function forgetCache(): void
+    {
+        $this->scheduleCache = [];
+    }
+
+    /**
+     * Jadwal karyawan pada tanggal:
+     * 1) override harian
+     * 2) penempatan + pola rotasi (jika ikut pasangan shift)
+     * 3) penempatan / assignment tetap
+     * 4) default perusahaan
+     */
+    public function forEmployeeOnDate(Employee|string $employee, Carbon|string $date): ?WorkSchedule
+    {
+        $employeeId = $employee instanceof Employee ? $employee->id : $employee;
+        $day = $date instanceof Carbon
+            ? $date->copy()->timezone(AppTimezone::display())->toDateString()
+            : Carbon::parse($date, AppTimezone::display())->toDateString();
+
+        $cacheKey = $employeeId.'|'.$day;
+        if (array_key_exists($cacheKey, $this->scheduleCache)) {
+            return $this->scheduleCache[$cacheKey];
+        }
+
+        $rotation = app(ShiftRotationService::class);
+
+        $override = $rotation->overrideFor($employeeId, $day);
+        if ($override?->schedule) {
+            return $this->scheduleCache[$cacheKey] = $override->schedule;
+        }
+
+        $placement = $rotation->basePlacement($employeeId, $day);
+        $rotated = $rotation->applyRotationToPlacement($placement, $day);
+        if ($rotated) {
+            return $this->scheduleCache[$cacheKey] = $rotated;
+        }
+
+        return $this->scheduleCache[$cacheKey] = $placement
+            ?? WorkSchedule::active()
+            ?? WorkSchedule::query()->orderBy('created_at')->first();
+    }
+
+    /**
+     * Jadwal tanpa override (penempatan ± rotasi).
+     */
+    public function baseScheduleForEmployeeOnDate(Employee|string $employee, Carbon|string $date): ?WorkSchedule
+    {
+        $employeeId = $employee instanceof Employee ? $employee->id : $employee;
+        $day = $date instanceof Carbon
+            ? $date->copy()->timezone(AppTimezone::display())->toDateString()
+            : Carbon::parse($date, AppTimezone::display())->toDateString();
+
+        $rotation = app(ShiftRotationService::class);
+        $placement = $rotation->basePlacement($employeeId, $day);
+        $rotated = $rotation->applyRotationToPlacement($placement, $day);
+
+        return $rotated
+            ?? $placement
+            ?? WorkSchedule::active()
+            ?? WorkSchedule::query()->orderBy('created_at')->first();
+    }
+
+    private function assignmentOrDefault(string $employeeId, string $day): ?WorkSchedule
+    {
+        $placement = app(ShiftRotationService::class)->basePlacement($employeeId, $day);
+
+        return $placement
+            ?? WorkSchedule::active()
+            ?? WorkSchedule::query()->orderBy('created_at')->first();
+    }
+
+    /**
+     * Map employee_id => work_schedule_id untuk banyak karyawan di satu tanggal.
+     *
+     * @param  iterable<int, string>  $employeeIds
+     * @return array<string, string|null>
+     */
+    public function scheduleIdsForEmployeesOnDate(iterable $employeeIds, Carbon|string $date): array
+    {
+        $ids = collect($employeeIds)->filter()->unique()->values();
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        $day = $date instanceof Carbon
+            ? $date->copy()->timezone(AppTimezone::display())->toDateString()
+            : Carbon::parse($date, AppTimezone::display())->toDateString();
+
+        $map = [];
+        foreach ($ids as $id) {
+            $map[(string) $id] = $this->forEmployeeOnDate($id, $day)?->id;
+        }
+
+        return $map;
+    }
+
+    /**
+     * Assignment aktif hari ini (untuk UI karyawan).
+     */
+    public function currentAssignment(Employee|string $employee, ?string $onDate = null): ?EmployeeShiftAssignment
+    {
+        $employeeId = $employee instanceof Employee ? $employee->id : $employee;
+        $day = $onDate ?? AppTimezone::nowDisplay()->toDateString();
+
+        return EmployeeShiftAssignment::query()
+            ->with('schedule')
+            ->where('employee_id', $employeeId)
+            ->whereDate('effective_from', '<=', $day)
+            ->where(function ($q) use ($day) {
+                $q->whereNull('effective_to')
+                    ->orWhereDate('effective_to', '>=', $day);
+            })
+            ->orderByDesc('effective_from')
+            ->first();
+    }
+
+    /**
+     * Set / ganti shift karyawan mulai tanggal tertentu (assignment tetap).
+     * Karyawan di tim rotasi sebaiknya diubah lewat Tim / Override.
+     */
+    public function assign(
+        Employee|string $employee,
+        WorkSchedule|string $schedule,
+        ?string $effectiveFrom = null,
+    ): EmployeeShiftAssignment {
+        $employeeId = $employee instanceof Employee ? $employee->id : $employee;
+        $scheduleId = $schedule instanceof WorkSchedule ? $schedule->id : $schedule;
+        $from = $effectiveFrom ?? AppTimezone::nowDisplay()->toDateString();
+
+        $open = EmployeeShiftAssignment::query()
+            ->where('employee_id', $employeeId)
+            ->whereNull('effective_to')
+            ->orderByDesc('effective_from')
+            ->get();
+
+        foreach ($open as $row) {
+            if ($row->work_schedule_id === $scheduleId && $row->effective_from->toDateString() <= $from) {
+                return $row->load('schedule');
+            }
+
+            $end = Carbon::parse($from, AppTimezone::display())->subDay()->toDateString();
+            if ($end < $row->effective_from->toDateString()) {
+                $row->delete();
+            } else {
+                $row->update(['effective_to' => $end]);
+            }
+        }
+
+        $this->forgetCache();
+
+        return EmployeeShiftAssignment::query()->create([
+            'employee_id' => $employeeId,
+            'work_schedule_id' => $scheduleId,
+            'effective_from' => $from,
+            'effective_to' => null,
+            'created_at' => now(),
+        ])->load('schedule');
+    }
+
+    /**
+     * Tukar shift permanen (assignment tetap) antara dua karyawan.
+     */
+    public function swap(Employee|string $employeeA, Employee|string $employeeB, ?string $effectiveFrom = null): void
+    {
+        $idA = $employeeA instanceof Employee ? $employeeA->id : $employeeA;
+        $idB = $employeeB instanceof Employee ? $employeeB->id : $employeeB;
+        $from = $effectiveFrom ?? AppTimezone::nowDisplay()->toDateString();
+
+        if ($idA === $idB) {
+            throw new \InvalidArgumentException('Pilih dua karyawan yang berbeda.');
+        }
+
+        $scheduleA = $this->baseScheduleForEmployeeOnDate($idA, $from);
+        $scheduleB = $this->baseScheduleForEmployeeOnDate($idB, $from);
+
+        if (! $scheduleA || ! $scheduleB) {
+            throw new \RuntimeException('Kedua karyawan harus punya jadwal/shift yang bisa ditukar.');
+        }
+
+        if ($scheduleA->id === $scheduleB->id) {
+            throw new \RuntimeException('Kedua karyawan sudah di shift yang sama.');
+        }
+
+        $this->forgetCache();
+        $this->assign($idA, $scheduleB->id, $from);
+        $this->assign($idB, $scheduleA->id, $from);
+        $this->forgetCache();
+    }
+
+    /**
+     * Rolling assignment tetap (circular). Untuk pola otomatis pakai Tim + Rotasi.
+     *
+     * @param  list<string>  $employeeIds
+     */
+    public function rotate(array $employeeIds, ?string $effectiveFrom = null, int $steps = 1): void
+    {
+        $ids = array_values(array_unique(array_filter($employeeIds)));
+        $from = $effectiveFrom ?? AppTimezone::nowDisplay()->toDateString();
+
+        if (count($ids) < 2) {
+            throw new \InvalidArgumentException('Rolling minimal 2 karyawan.');
+        }
+
+        if ($steps === 0) {
+            throw new \InvalidArgumentException('Langkah rolling tidak boleh 0.');
+        }
+
+        $n = count($ids);
+        $current = [];
+        foreach ($ids as $id) {
+            $schedule = $this->baseScheduleForEmployeeOnDate($id, $from);
+            if (! $schedule) {
+                throw new \RuntimeException('Semua karyawan harus punya shift sebelum rolling.');
+            }
+            $current[$id] = $schedule->id;
+        }
+
+        $uniqueShifts = array_unique(array_values($current));
+        if (count($uniqueShifts) < 2) {
+            throw new \RuntimeException('Rolling butuh minimal 2 shift berbeda di antara karyawan yang dipilih.');
+        }
+
+        $mod = (($steps % $n) + $n) % $n;
+        $this->forgetCache();
+
+        foreach ($ids as $i => $id) {
+            $sourceIndex = ($i - $mod + $n) % $n;
+            $this->assign($id, $current[$ids[$sourceIndex]], $from);
+        }
+
+        $this->forgetCache();
+    }
+
+    /**
+     * @param  iterable<int, string>  $employeeIds
+     */
+    public function assignMany(iterable $employeeIds, WorkSchedule|string $schedule, ?string $effectiveFrom = null): int
+    {
+        $count = 0;
+        foreach ($employeeIds as $id) {
+            $this->assign($id, $schedule, $effectiveFrom);
+            $count++;
+        }
+        $this->forgetCache();
+
+        return $count;
+    }
+}

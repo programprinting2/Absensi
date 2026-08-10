@@ -84,16 +84,24 @@ class AttendanceReportService
         ?Carbon $rangeStart = null,
         ?Carbon $rangeEnd = null,
     ): Collection {
+        // $schedule tetap diterima untuk kompatibilitas pemanggil lama;
+        // perhitungan memakai ShiftResolver per karyawan per tanggal.
+        unset($schedule);
         $rows = $logs
             ->groupBy(fn (AttendanceLog $log) => $log->employee_id.'|'.$this->toLocal($log->event_time)->toDateString())
-            ->map(function (Collection $group) use ($schedule) {
+            ->map(function (Collection $group) {
                 $first = $group->first();
                 $firstLocal = $this->toLocal($first->event_time);
+                $date = $firstLocal->toDateString();
+                $schedule = app(ShiftResolver::class)->forEmployeeOnDate($first->employee_id, $date);
 
-                $row = $this->buildAttendanceRow($group, $schedule, $firstLocal->toDateString());
+                $row = $this->buildAttendanceRow($group, $schedule, $date);
                 $row['employee'] = $first->employee;
-                $row['date'] = $firstLocal->toDateString();
+                $row['date'] = $date;
                 $row['date_label'] = $firstLocal->locale('id')->translatedFormat('l, j M y');
+                $row['shift_id'] = $schedule?->id;
+                $row['shift_name'] = $schedule?->name;
+                $row['shift_crosses_midnight'] = (bool) ($schedule?->crosses_midnight);
 
                 return $row;
             });
@@ -131,6 +139,7 @@ class AttendanceReportService
         $end = $endDisplay->lessThan($today) ? $endDisplay->copy()->startOfDay() : $today;
         $startDisplay = AppTimezone::toDisplay($rangeStart)->startOfDay();
         $existingKeys = $existingKeys->flip();
+        $resolver = app(ShiftResolver::class);
 
         $rows = collect();
 
@@ -158,13 +167,18 @@ class AttendanceReportService
                     continue;
                 }
 
-                $leave = $leaveMap[$employee->id][$date->toDateString()] ?? null;
+                $day = $date->toDateString();
+                $schedule = $resolver->forEmployeeOnDate($employee->id, $day);
+                $leave = $leaveMap[$employee->id][$day] ?? null;
 
                 if ($leave) {
                     $rows->put($key, [
                         'employee' => $employee,
-                        'date' => $date->toDateString(),
+                        'date' => $day,
                         'date_label' => $date->copy()->locale('id')->translatedFormat('l, j M y'),
+                        'shift_id' => $schedule?->id,
+                        'shift_name' => $schedule?->name,
+                        'shift_crosses_midnight' => (bool) ($schedule?->crosses_midnight),
                         'clock_in' => null,
                         'break_start' => null,
                         'break_end' => null,
@@ -188,8 +202,11 @@ class AttendanceReportService
 
                 $rows->put($key, [
                     'employee' => $employee,
-                    'date' => $date->toDateString(),
+                    'date' => $day,
                     'date_label' => $date->copy()->locale('id')->translatedFormat('l, j M y'),
+                    'shift_id' => $schedule?->id,
+                    'shift_name' => $schedule?->name,
+                    'shift_crosses_midnight' => (bool) ($schedule?->crosses_midnight),
                     'clock_in' => null,
                     'break_start' => null,
                     'break_end' => null,
@@ -220,19 +237,24 @@ class AttendanceReportService
      */
     public function todayStatusForEmployees(Collection $employees, Collection $todayLogs, ?WorkSchedule $schedule = null): Collection
     {
+        unset($schedule);
         $logsByEmployee = $todayLogs->groupBy('employee_id');
         $today = AppTimezone::nowDisplay()->toDateString();
+        $resolver = app(ShiftResolver::class);
         $leaveMap = app(LeaveService::class)->approvedLeavesByEmployeeDate(
             $employees->pluck('id'),
             $today,
             $today,
         );
 
-        return $employees->map(function ($employee) use ($logsByEmployee, $schedule, $leaveMap, $today) {
+        return $employees->map(function ($employee) use ($logsByEmployee, $leaveMap, $today, $resolver) {
             $logs = $logsByEmployee->get($employee->id, collect())->sortBy('event_time');
+            $empSchedule = $resolver->forEmployeeOnDate($employee->id, $today);
 
-            $row = $this->buildAttendanceRow($logs, $schedule, $today);
+            $row = $this->buildAttendanceRow($logs, $empSchedule, $today);
             $row['employee'] = $employee;
+            $row['shift_id'] = $empSchedule?->id;
+            $row['shift_name'] = $empSchedule?->name;
 
             if (! $row['clock_in'] && ! $row['clock_out'] && ($leaveMap[$employee->id][$today] ?? null)) {
                 $leave = $leaveMap[$employee->id][$today];

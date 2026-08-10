@@ -2,7 +2,6 @@
 
 use App\Models\AttendanceDayReason;
 use App\Models\Employee;
-use App\Models\WorkSchedule;
 use App\Support\AppTimezone;
 use App\Services\AttendanceReportService;
 use Illuminate\Support\Carbon;
@@ -29,7 +28,7 @@ new #[Layout('layouts.app')] class extends Component
 
         $rows = $reports->pivotByEmployeeAndDate(
             $logs,
-            WorkSchedule::active(),
+            null,
             $employees,
             $rangeStart,
             $rangeEnd,

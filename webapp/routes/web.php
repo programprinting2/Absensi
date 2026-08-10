@@ -55,6 +55,7 @@ Route::middleware(['auth', 'verified', 'menu'])->group(function () {
 
     Volt::route('attendance', 'pages.attendance.index')->name('attendance.index');
     Volt::route('leaves', 'pages.leaves.index')->name('leaves.index');
+    Volt::route('shifts', 'pages.shifts.index')->name('shifts.index');
     Volt::route('reports/attendance', 'pages.reports.attendance')->name('reports.attendance');
     Volt::route('cash-bons', 'pages.cash-bons.index')->name('cash-bons.index');
 

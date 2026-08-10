@@ -2,7 +2,7 @@
     $settingsTabs = [
         ['label' => 'Perangkat', 'url' => route('settings.index', ['tab' => 'perangkat']), 'active' => false],
         ['label' => 'Parameter', 'url' => route('settings.index', ['tab' => 'parameter']), 'active' => false],
-        ['label' => 'Jam Kerja', 'url' => route('settings.index', ['tab' => 'jam-kerja']), 'active' => false],
+        ['label' => 'Jam Kerja', 'url' => route('shifts.index', ['tab' => 'rules']), 'active' => false],
         ['label' => 'Identitas Usaha', 'url' => route('settings.index', ['tab' => 'identitas']), 'active' => false],
         ['label' => 'Hak Akses', 'url' => route('settings.index', ['tab' => 'hak-akses']), 'active' => false],
         ['label' => 'PPh 21', 'url' => route('settings.index', ['tab' => 'pph21']), 'active' => false],

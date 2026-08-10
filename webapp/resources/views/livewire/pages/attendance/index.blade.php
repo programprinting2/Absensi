@@ -3,7 +3,6 @@
 use App\Models\AttendanceLog;
 use App\Models\Device;
 use App\Models\Employee;
-use App\Models\WorkSchedule;
 use App\Services\AttendanceReportService;
 use App\Support\AppTimezone;
 use App\Support\IndonesianHolidays;
@@ -240,8 +239,7 @@ new #[Layout('layouts.app')] class extends Component
                 ->whereBetween('event_time', [$startUtc, $endUtc])
                 ->get(['id', 'employee_id', 'attendance_type', 'event_time']);
 
-        $schedule = WorkSchedule::active();
-        $rows = $reports->todayStatusForEmployees($employees, $dayLogs, $schedule)
+        $rows = $reports->todayStatusForEmployees($employees, $dayLogs)
             ->map(function (array $row) use ($selectedDate) {
                 $row['date'] = $selectedDate;
 
@@ -387,9 +385,14 @@ new #[Layout('layouts.app')] class extends Component
                                 <tr wire:key="attendance-{{ $row['employee']->id }}" class="hover:bg-gray-50">
                                     <td class="px-4 py-3 whitespace-nowrap">
                                         <div class="font-medium text-gray-900">{{ $row['employee']->full_name }}</div>
-                                        @if ($row['employee']->employee_code)
-                                            <div class="text-xs text-gray-400">{{ $row['employee']->employee_code }}</div>
-                                        @endif
+                                        <div class="text-xs text-gray-400">
+                                            @if ($row['employee']->employee_code)
+                                                {{ $row['employee']->employee_code }}
+                                            @endif
+                                            @if (! empty($row['shift_name']))
+                                                @if ($row['employee']->employee_code) · @endif{{ $row['shift_name'] }}
+                                            @endif
+                                        </div>
                                     </td>
 
                                     @foreach ([
