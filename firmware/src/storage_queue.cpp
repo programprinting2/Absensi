@@ -87,6 +87,8 @@ bool fillEventFromDoc(const String &path, JsonDocument &doc, PendingEvent &out) 
     out.method = doc["method"].as<String>();
     out.eventTime = (time_t)doc["event_time"].as<long>();
     out.isOfflineCapture = doc["is_offline_capture"] | false;
+    out.needsTimeCorrection = doc["needs_time_correction"] | false;
+    out.bootId = doc["boot_id"] | 0;
     out.retryCount = doc["retry_count"] | 0;
     return true;
 }
@@ -181,7 +183,8 @@ void begin() {
 }
 
 bool enqueue(const String &employeeId, const String &attendanceType,
-             const String &method, time_t eventTime, bool isOfflineCapture) {
+             const String &method, time_t eventTime, bool isOfflineCapture,
+             bool needsTimeCorrection, uint32_t bootId) {
     if (employeeId.length() == 0) {
         Serial.println(F("[queue] Gagal enqueue: employee_id kosong"));
         return false;
@@ -197,6 +200,8 @@ bool enqueue(const String &employeeId, const String &attendanceType,
     doc["method"] = method;
     doc["event_time"] = (long)eventTime;
     doc["is_offline_capture"] = isOfflineCapture;
+    doc["needs_time_correction"] = needsTimeCorrection;
+    doc["boot_id"] = bootId;
     doc["retry_count"] = 0;
 
     File file = SPIFFS.open(path, FILE_WRITE);

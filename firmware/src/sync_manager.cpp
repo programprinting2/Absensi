@@ -1,5 +1,7 @@
 #include "sync_manager.h"
+#include "boot_session.h"
 #include "config.h"
+#include "ntp_time.h"
 #include "storage_queue.h"
 #include "supabase_client.h"
 #include "wifi_manager.h"
@@ -84,6 +86,10 @@ void loop() {
         return;
     }
 
+    if (!ntp_time::hasValidClockThisBoot()) {
+        ntp_time::trySync();
+    }
+
     if (deviceId.length() == 0) {
         Serial.println(F("[sync] Lewati sync: device_id belum resolved"));
         return;
@@ -100,10 +106,22 @@ void loop() {
     Serial.println(F(" item antrian..."));
 
     for (int i = 0; i < count; i++) {
+        time_t eventTimeForUpload = events[i].eventTime;
+        if (events[i].needsTimeCorrection &&
+            events[i].bootId == boot_session::id() &&
+            ntp_time::correctionAnchorReady()) {
+            time_t corrected = ntp_time::correctQueuedTime(events[i].eventTime);
+            Serial.print(F("[sync] Koreksi waktu antrian: "));
+            Serial.print((long)events[i].eventTime);
+            Serial.print(F(" -> "));
+            Serial.println((long)corrected);
+            eventTimeForUpload = corrected;
+        }
+
         int httpCode = -1;
         auto result = supabase_client::insertAttendanceLog(
             deviceId, events[i].employeeId, events[i].attendanceType,
-            events[i].method, events[i].eventTime, events[i].isOfflineCapture,
+            events[i].method, eventTimeForUpload, events[i].isOfflineCapture,
             events[i].clientUuid, &httpCode);
 
         if (result == supabase_client::InsertResult::Success ||

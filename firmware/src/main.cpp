@@ -1,5 +1,6 @@
 #include "app_state.h"
 #include "attendance_rules.h"
+#include "boot_session.h"
 #include "buzzer_handler.h"
 #include "command_poller.h"
 #include "config.h"
@@ -96,9 +97,13 @@ void recordAttendance(const String &employeeId, const String &employeeName, Atte
         return;
     }
 
+    bool needsTimeCorrection = !ntp_time::hasValidClockThisBoot();
+    bool isOfflineCapture = !wifi_manager::isConnected() || needsTimeCorrection;
+
     bool queued = storage_queue::enqueue(employeeId, attendanceTypeToString(type),
                                           method == AttendanceMethod::Fingerprint ? "fingerprint" : "pin",
-                                          now, !wifi_manager::isConnected());
+                                          now, isOfflineCapture, needsTimeCorrection,
+                                          boot_session::id());
 
     if (!queued) {
         recordFailure("Gagal Simpan Lokal");
@@ -332,6 +337,9 @@ void handleDeleteFlow() {
 void setup() {
     Serial.begin(115200);
     SPIFFS.begin(true);
+
+    boot_session::begin();
+    ntp_time::begin();
 
     lcd_ui::begin();
     lcd_ui::showBoot();

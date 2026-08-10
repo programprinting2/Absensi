@@ -22,6 +22,80 @@ char serverUrlParam[129];
 char apiKeyParam[257];
 char deviceCodeParam[33];
 char dashboardUrlParam[129];
+// Harus muat info box + skrip isi form (URL/key bisa panjang). Buffer 1024
+// memotong di tengah <script>, sehingga field database + tombol Save "hilang".
+char configInjectHtml[3072];
+
+void appendJsEscaped(const String &value, String &out) {
+    for (unsigned int i = 0; i < value.length(); i++) {
+        const char c = value[i];
+        if (c == '\\' || c == '"') {
+            out += '\\';
+        }
+        out += c;
+    }
+}
+
+void buildConfigInjectHtml() {
+    const bool supabase = server_config::useRestApi();
+    const char *mode = supabase ? "supabase" : "laravel";
+    const char *modeLabel = supabase ? "Supabase Cloud" : "Laravel Lokal";
+
+    const String url = server_config::serverUrl();
+    const String key = server_config::apiKey();
+    const String code = server_config::deviceCode();
+    const String dash = server_config::dashboardUrl();
+
+    String urlJs, keyJs, codeJs, dashJs;
+    appendJsEscaped(url, urlJs);
+    appendJsEscaped(key, keyJs);
+    appendJsEscaped(code, codeJs);
+    appendJsEscaped(dash, dashJs);
+
+    String dashLine;
+    if (supabase && dash.length() > 0) {
+        dashLine = String("Dashboard: ") + dash + "<br/>";
+    }
+
+    snprintf(
+        configInjectHtml,
+        sizeof(configInjectHtml),
+        R"HTML(
+<br/><div id="wm_active_cfg" style="margin:8px 0;padding:10px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:6px;font-size:13px;line-height:1.45">
+<b>Konfigurasi aktif (NVS)</b><br/>
+Mode: %s<br/>
+URL: %s<br/>
+Device: %s<br/>
+%s
+</div>
+<script>
+window.wmSrvCfg={mode:"%s",server_url:"%s",api_key:"%s",device_code:"%s",dashboard_url:"%s"};
+function wmFillServerFields(){
+  var c=window.wmSrvCfg;if(!c)return;
+  var m=document.querySelector('[name="server_mode"]');
+  if(m)m.value=c.mode;
+  var fields=[["server_url",c.server_url],["api_key",c.api_key],["device_code",c.device_code],["dashboard_url",c.dashboard_url]];
+  for(var i=0;i<fields.length;i++){
+    var el=document.querySelector('[name="'+fields[i][0]+'"]');
+    if(el)el.value=fields[i][1]||'';
+  }
+  if(typeof applyServerMode==="function")applyServerMode(c.mode);
+}
+document.addEventListener("DOMContentLoaded",function(){wmFillServerFields();});
+setTimeout(wmFillServerFields,250);
+setTimeout(wmFillServerFields,800);
+</script>
+)HTML",
+        modeLabel,
+        url.length() > 0 ? url.c_str() : "(belum diset)",
+        code.length() > 0 ? code.c_str() : "(belum diset)",
+        supabase && dash.length() > 0 ? dashLine.c_str() : "",
+        mode,
+        urlJs.c_str(),
+        keyJs.c_str(),
+        codeJs.c_str(),
+        dashJs.c_str());
+}
 
 // Radio + skrip toggle field (WiFiManager custom HTML parameter).
 const char PARAM_MODE_HTML[] PROGMEM = R"HTML(
@@ -44,16 +118,43 @@ const char PORTAL_HEAD_HTML[] PROGMEM = R"HEAD(
 </style>
 <script>
 function wmHideNamedField(name, hide) {
-  var input = document.querySelector('[name="' + name + '"]');
+  var input = document.querySelector('input[name="' + name + '"]');
   if (!input) return;
   input.style.display = hide ? 'none' : '';
-  var prev = input.previousElementSibling;
-  if (prev && prev.tagName === 'LABEL') {
-    prev.style.display = hide ? 'none' : '';
+  var node = input.previousSibling;
+  while (node) {
+    var prev = node.previousSibling;
+    if (node.nodeType === 3) {
+      if (hide) {
+        if (!node._wmOrigText) node._wmOrigText = node.textContent;
+        node.textContent = '';
+      } else if (node._wmOrigText) {
+        node.textContent = node._wmOrigText;
+      }
+    } else if (node.nodeType === 1 && node.tagName === 'BR') {
+      node.style.display = hide ? 'none' : '';
+    } else if (node.nodeType === 1 && (node.tagName === 'INPUT' || node.tagName === 'FIELDSET')) {
+      break;
+    }
+    node = prev;
   }
-  var br = input.nextElementSibling;
-  if (br && br.tagName === 'BR') {
-    br.style.display = hide ? 'none' : '';
+  var next = input.nextElementSibling;
+  if (next && next.tagName === 'BR') {
+    next.style.display = hide ? 'none' : '';
+  }
+}
+
+function wmSetInputLabel(name, text) {
+  var input = document.querySelector('input[name="' + name + '"]');
+  if (!input) return;
+  var node = input.previousSibling;
+  while (node) {
+    if (node.nodeType === 3 && node.textContent.trim()) {
+      node.textContent = text;
+      node._wmOrigText = text;
+      return;
+    }
+    node = node.previousSibling;
   }
 }
 
@@ -65,12 +166,9 @@ function applyServerMode(mode) {
   wmHideNamedField('api_key', isLocal);
   wmHideNamedField('dashboard_url', isLocal);
 
-  var urlLabel = document.querySelector('label[for="server_url"]');
-  if (urlLabel) {
-    urlLabel.textContent = isLocal
-      ? 'URL Laravel (contoh: http://192.168.100.249:8008)'
-      : 'URL Supabase (contoh: https://xxxx.supabase.co)';
-  }
+  wmSetInputLabel('server_url', isLocal
+    ? 'URL Laravel (contoh: http://192.168.100.100:8008)'
+    : 'URL Supabase (contoh: https://xxxx.supabase.co)');
 
   var picks = document.querySelectorAll('input[name="mode_pick"]');
   for (var i = 0; i < picks.length; i++) {
@@ -123,6 +221,8 @@ WiFiManagerParameter paramDashboardUrl(
     dashboardUrlParam,
     sizeof(dashboardUrlParam) - 1);
 
+WiFiManagerParameter paramConfigInject(configInjectHtml);
+
 void copyToParamBuffer(char *dest, size_t destSize, const String &value) {
     if (destSize == 0) {
         return;
@@ -138,6 +238,7 @@ void refreshServerParamValues() {
     copyToParamBuffer(apiKeyParam, sizeof(apiKeyParam), server_config::apiKey());
     copyToParamBuffer(deviceCodeParam, sizeof(deviceCodeParam), server_config::deviceCode());
     copyToParamBuffer(dashboardUrlParam, sizeof(dashboardUrlParam), server_config::dashboardUrl());
+    buildConfigInjectHtml();
 }
 
 void saveParamsCallback() {
@@ -174,6 +275,7 @@ void saveParamsCallback() {
 void registerServerParams() {
     refreshServerParamValues();
     wm.addParameter(&paramModeHtml);
+    wm.addParameter(&paramConfigInject);
     wm.addParameter(&paramServerMode);
     wm.addParameter(&paramServerUrl);
     wm.addParameter(&paramApiKey);
