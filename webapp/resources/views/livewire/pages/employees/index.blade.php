@@ -9,6 +9,7 @@ use App\Services\ShiftResolver;
 use App\Support\AppTimezone;
 use App\Support\Toast;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Livewire\Attributes\Layout;
 use Livewire\Volt\Component;
 use Livewire\WithPagination;
@@ -41,6 +42,14 @@ new #[Layout('layouts.app')] class extends Component
     public string $pin = '';
     public string $pin_confirmation = '';
 
+    public bool $portal_enabled = false;
+
+    public string $portal_email = '';
+
+    public string $portal_password = '';
+
+    public string $portal_password_confirmation = '';
+
     public function openCreate(): void
     {
         $this->resetValidation();
@@ -72,6 +81,11 @@ new #[Layout('layouts.app')] class extends Component
         $this->is_active = (bool) $employee->is_active;
         $this->pin = '';
         $this->pin_confirmation = '';
+        $portalUser = $employee->portalUser;
+        $this->portal_enabled = $portalUser !== null;
+        $this->portal_email = $portalUser?->email ?? '';
+        $this->portal_password = '';
+        $this->portal_password_confirmation = '';
         $this->showModal = true;
         $this->dispatch('employee-modal-opened');
     }
@@ -120,6 +134,7 @@ new #[Layout('layouts.app')] class extends Component
 
         if ($this->editingEmployeeId) {
             $employee = Employee::findOrFail($this->editingEmployeeId);
+            $wasActive = (bool) $employee->is_active;
             $employee->fill(collect($data)->except(['pin', 'pin_confirmation', 'is_active'])->toArray());
             $employee->is_active = $data['is_active'];
 
@@ -131,6 +146,11 @@ new #[Layout('layouts.app')] class extends Component
             }
 
             $employee->save();
+
+            if ($wasActive && ! $employee->is_active) {
+                app(\App\Services\ShiftGroupService::class)->deactivateEmployee($employee);
+            }
+
             Toast::success('Data karyawan berhasil diperbarui.', $this);
         } else {
             $nextCode = (int) (Employee::max('employee_code') ?? 0) + 1;
@@ -152,6 +172,18 @@ new #[Layout('layouts.app')] class extends Component
                     $defaultSchedule,
                     $data['join_date'] ?? AppTimezone::nowDisplay()->toDateString(),
                 );
+            }
+
+            // Karyawan baru masuk Unassigned group (roster kalender).
+            try {
+                $groupService = app(\App\Services\ShiftGroupService::class);
+                $groupService->moveEmployee(
+                    $employee,
+                    $groupService->ensureUnassigned(),
+                    $data['join_date'] ?? AppTimezone::nowDisplay()->toDateString(),
+                );
+            } catch (\Throwable) {
+                // non-blocking
             }
 
             Toast::success('Karyawan berhasil ditambahkan.', $this);
@@ -178,6 +210,7 @@ new #[Layout('layouts.app')] class extends Component
                 ]);
             }
             $employee->attendanceLogs()->delete();
+            $employee->portalUser?->delete();
             $employee->delete();
         });
 
@@ -221,6 +254,75 @@ new #[Layout('layouts.app')] class extends Component
 
         $this->resetPasswordPlain = $plain;
         Toast::success('Password baru dibuat. Salin sekarang — tidak ditampilkan lagi setelah modal ditutup.', $this);
+    }
+
+    public function savePortal(): void
+    {
+        if (! $this->editingEmployeeId) {
+            return;
+        }
+
+        $employee = Employee::with('portalUser')->findOrFail($this->editingEmployeeId);
+        $portalUser = $employee->portalUser;
+
+        $rules = [
+            'portal_enabled' => ['required', 'boolean'],
+            'portal_email' => [
+                'nullable',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')->ignore($portalUser?->id),
+            ],
+            'portal_password' => ['nullable', 'string', 'min:8', 'confirmed'],
+        ];
+
+        if ($this->portal_enabled) {
+            $rules['portal_email'] = [
+                'required',
+                'email',
+                'max:255',
+                Rule::unique('users', 'email')->ignore($portalUser?->id),
+            ];
+            if (! $portalUser) {
+                $rules['portal_password'] = ['required', 'string', 'min:8', 'confirmed'];
+            }
+        }
+
+        $data = $this->validate($rules);
+
+        if (! $data['portal_enabled']) {
+            $portalUser?->delete();
+            $this->portal_email = '';
+            $this->portal_password = '';
+            $this->portal_password_confirmation = '';
+            Toast::success('Akses portal karyawan dinonaktifkan.', $this);
+
+            return;
+        }
+
+        if ($portalUser) {
+            $portalUser->name = $employee->full_name;
+            $portalUser->email = $data['portal_email'];
+            $portalUser->role = User::ROLE_EMPLOYEE;
+            $portalUser->employee_id = $employee->id;
+            if (filled($data['portal_password'] ?? null)) {
+                $portalUser->password = $data['portal_password'];
+            }
+            $portalUser->save();
+        } else {
+            User::query()->forceCreate([
+                'name' => $employee->full_name,
+                'email' => $data['portal_email'],
+                'password' => $data['portal_password'],
+                'role' => User::ROLE_EMPLOYEE,
+                'employee_id' => $employee->id,
+                'email_verified_at' => now(),
+            ]);
+        }
+
+        $this->portal_password = '';
+        $this->portal_password_confirmation = '';
+        Toast::success('Akses portal karyawan berhasil disimpan.', $this);
     }
 
     public function enrollFingerprint(string $deviceId): void
@@ -282,6 +384,10 @@ new #[Layout('layouts.app')] class extends Component
         $this->is_active = true;
         $this->pin = '';
         $this->pin_confirmation = '';
+        $this->portal_enabled = false;
+        $this->portal_email = '';
+        $this->portal_password = '';
+        $this->portal_password_confirmation = '';
         $this->editingEmployeeId = null;
         $this->resetPasswordPlain = null;
         $this->resetValidation();
@@ -511,6 +617,12 @@ new #[Layout('layouts.app')] class extends Component
                             </button>
                         </li>
                         <li>
+                            <button @click="activeTab = 'portal'" :class="activeTab === 'portal' ? 'bg-orange-50 text-[#f7340d] border-l-2 border-[#f7340d]' : 'text-gray-600 hover:bg-gray-100 border-l-2 border-transparent'" class="w-full text-left px-3 py-2 text-sm font-medium rounded-r-md transition-colors flex items-center gap-2.5">
+                                <svg class="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" /></svg>
+                                Akses Portal
+                            </button>
+                        </li>
+                        <li>
                             <button @click="activeTab = 'gaji'" :class="activeTab === 'gaji' ? 'bg-orange-50 text-[#f7340d] border-l-2 border-[#f7340d]' : 'text-gray-600 hover:bg-gray-100 border-l-2 border-transparent'" class="w-full text-left px-3 py-2 text-sm font-medium rounded-r-md transition-colors flex items-center gap-2.5">
                                 <svg class="w-[18px] h-[18px] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
                                 Pengaturan Gaji
@@ -581,7 +693,7 @@ new #[Layout('layouts.app')] class extends Component
                                     @if ($editAccountEmail)
                                         <p class="mt-0.5 text-xs text-gray-500">{{ $editAccountEmail }}</p>
                                     @else
-                                        <p class="mt-0.5 text-xs text-gray-500">Reset membuat password acak baru (hanya untuk akun portal karyawan tertaut).</p>
+                                        <p class="mt-0.5 text-xs text-gray-500">Belum ada akun portal. Buat di tab <button type="button" @click="activeTab = 'portal'" class="text-[#f7340d] underline">Akses Portal</button>.</p>
                                     @endif
                                     @if ($resetPasswordPlain)
                                         <div class="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
@@ -589,6 +701,7 @@ new #[Layout('layouts.app')] class extends Component
                                             <p class="mt-1 font-mono text-sm text-amber-950 select-all">{{ $resetPasswordPlain }}</p>
                                         </div>
                                     @endif
+                                    @if ($editAccountEmail)
                                     <button
                                         type="button"
                                         wire:click="resetPassword"
@@ -597,6 +710,7 @@ new #[Layout('layouts.app')] class extends Component
                                     >
                                         Reset Password
                                     </button>
+                                    @endif
                                 </div>
                                 @endif
                             </div>
@@ -744,6 +858,53 @@ new #[Layout('layouts.app')] class extends Component
                                     <div>
                                         <label for="employee_pin_confirm" class="block text-sm font-medium text-gray-700">Konfirmasi PIN</label>
                                         <input wire:model="pin_confirmation" id="employee_pin_confirm" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password" data-lpignore="true" data-1p-ignore="true" data-form-type="other" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+
+                        {{-- Tab: Akses Portal (edit only) --}}
+                        <template x-if="activeTab === 'portal'">
+                            <div>
+                                <h3 class="text-base font-semibold text-gray-900 mb-1">Akses Portal Absensi</h3>
+                                <p class="text-sm text-gray-500 mb-5">
+                                    Buat akun login agar karyawan bisa melihat absensi, cuti, dan jadwal shift (role <strong>Karyawan</strong>).
+                                </p>
+                                <div class="space-y-4">
+                                    <div class="flex items-center gap-2">
+                                        <input wire:model.live="portal_enabled" id="portal_enabled" type="checkbox" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" />
+                                        <label for="portal_enabled" class="text-sm font-medium text-gray-700">Aktifkan akses portal</label>
+                                    </div>
+
+                                    @if ($portal_enabled)
+                                        <div>
+                                            <label for="portal_email" class="block text-sm font-medium text-gray-700">Email login</label>
+                                            <input wire:model="portal_email" id="portal_email" type="email" autocomplete="off" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                                            @error('portal_email') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                                        </div>
+                                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div>
+                                                <label for="portal_password" class="block text-sm font-medium text-gray-700">
+                                                    Password {{ $editingEmployee?->portalUser ? '(kosongkan jika tidak diubah)' : '' }}
+                                                </label>
+                                                <input wire:model="portal_password" id="portal_password" type="password" autocomplete="new-password" data-lpignore="true" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                                                @error('portal_password') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                                            </div>
+                                            <div>
+                                                <label for="portal_password_confirmation" class="block text-sm font-medium text-gray-700">Konfirmasi password</label>
+                                                <input wire:model="portal_password_confirmation" id="portal_password_confirmation" type="password" autocomplete="new-password" data-lpignore="true" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                                            </div>
+                                        </div>
+                                    @endif
+
+                                    @if ($editingEmployee?->portalUser)
+                                        <p class="text-xs text-green-700">Portal aktif · email {{ $editingEmployee->portalUser->email }}</p>
+                                    @endif
+
+                                    <div class="flex justify-end pt-2">
+                                        <button type="button" wire:click="savePortal" class="inline-flex items-center px-4 py-2 bg-[#f7340d] border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-[#d92c0a] transition">
+                                            Simpan Akses Portal
+                                        </button>
                                     </div>
                                 </div>
                             </div>

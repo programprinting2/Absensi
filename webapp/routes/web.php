@@ -31,6 +31,7 @@ Route::middleware(['auth', 'verified', 'menu'])->group(function () {
     Volt::route('dashboard', 'pages.dashboard')->name('dashboard');
     Volt::route('my/attendance', 'pages.employee.dashboard')->name('employee.dashboard');
     Volt::route('my/leaves', 'pages.employee.leaves')->name('employee.leaves');
+    Volt::route('my/shifts', 'pages.employee.shifts')->name('employee.shifts');
 
     Volt::route('employees', 'pages.employees.index')->name('employees.index');
     Route::get('employees/create', [EmployeeController::class, 'create'])->name('employees.create');

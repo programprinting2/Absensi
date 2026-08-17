@@ -229,7 +229,7 @@ new #[Layout('layouts.app')] class extends Component
                 'total' => $rows->count(),
                 'ok' => $rows->where('compliance_ok', true)->count(),
                 'not_ok' => $rows->filter(fn ($r) => empty($r['compliance_ok']))->count(),
-                'tidak_masuk' => $rows->where('status', 'Tidak Masuk')->count(),
+                'tidak_masuk' => $rows->whereIn('status', ['Tidak Masuk', 'Off'])->count(),
                 'terlambat' => $rows->where('is_late', true)->count(),
                 'istirahat_lebih' => $rows->where('is_over_break', true)->count(),
                 'pulang_awal' => $rows->where('is_early_out', true)->count(),

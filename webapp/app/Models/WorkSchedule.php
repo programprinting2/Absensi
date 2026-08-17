@@ -20,12 +20,14 @@ class WorkSchedule extends Model
         'late_after_time',
         'crosses_midnight',
         'is_active',
+        'is_enabled',
     ];
 
     protected function casts(): array
     {
         return [
             'is_active' => 'boolean',
+            'is_enabled' => 'boolean',
             'crosses_midnight' => 'boolean',
             'created_at' => 'datetime',
         ];
@@ -37,6 +39,11 @@ class WorkSchedule extends Model
     public static function active(): ?self
     {
         return once(fn () => static::where('is_active', true)->first());
+    }
+
+    public function scopeEnabled($query)
+    {
+        return $query->where('is_enabled', true);
     }
 
     public function assignments()

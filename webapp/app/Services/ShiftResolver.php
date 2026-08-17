@@ -4,89 +4,195 @@ namespace App\Services;
 
 use App\Models\Employee;
 use App\Models\EmployeeShiftAssignment;
+use App\Models\ShiftCalendarEntry;
+use App\Models\ShiftDaySetting;
+use App\Models\ShiftEmployeeLibur;
+use App\Models\ShiftEmployeeShiftOverride;
 use App\Models\WorkSchedule;
 use App\Support\AppTimezone;
+use App\Support\ResolvedShiftDay;
 use Illuminate\Support\Carbon;
 
 class ShiftResolver
 {
+    /** @var array<string, ResolvedShiftDay> */
+    private array $dayCache = [];
+
     /** @var array<string, ?WorkSchedule> */
     private array $scheduleCache = [];
 
     public function forgetCache(): void
     {
+        $this->dayCache = [];
         $this->scheduleCache = [];
     }
 
     /**
-     * Jadwal karyawan pada tanggal:
-     * 1) override harian
-     * 2) penempatan + pola rotasi (jika ikut pasangan shift)
-     * 3) penempatan / assignment tetap
-     * 4) default perusahaan
+     * Resolusi lengkap hari kerja karyawan.
+     *
+     * Urutan: libur request → libur karyawan → libur perusahaan (hari/event)
+     * → tukar sif override → roster kalender group → unscheduled.
+     */
+    public function resolveDay(Employee|string $employee, Carbon|string $date): ResolvedShiftDay
+    {
+        $employeeId = $employee instanceof Employee ? $employee->id : $employee;
+        $day = $this->toDateString($date);
+        $cacheKey = $employeeId.'|'.$day;
+
+        if (isset($this->dayCache[$cacheKey])) {
+            return $this->dayCache[$cacheKey];
+        }
+
+        $daySetting = ShiftDaySetting::query()->whereDate('work_date', $day)->first();
+        $workOverride = $daySetting?->work_duration_minutes;
+        $breakOverride = $daySetting?->break_duration_minutes;
+
+        // 1) Libur request (cuti/sakit/izin approved)
+        $leaveMap = app(LeaveService::class)->approvedLeavesByEmployeeDate(
+            [$employeeId],
+            Carbon::parse($day, AppTimezone::display()),
+            Carbon::parse($day, AppTimezone::display()),
+        );
+        if (! empty($leaveMap[$employeeId][$day])) {
+            return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
+                kind: ResolvedShiftDay::KIND_LIBUR_REQUEST,
+                label: 'Libur request',
+                isExcused: true,
+                workDurationOverride: $workOverride,
+                breakDurationOverride: $breakOverride,
+            );
+        }
+
+        // 2) Libur rutin karyawan — jatah admin di pola
+        $hasLibur = ShiftEmployeeLibur::query()
+            ->where('employee_id', $employeeId)
+            ->whereDate('work_date', $day)
+            ->exists();
+        if ($hasLibur) {
+            return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
+                kind: ResolvedShiftDay::KIND_LIBUR_KARYAWAN,
+                label: 'Libur Rutin',
+                isExcused: true,
+                workDurationOverride: $workOverride,
+                breakDurationOverride: $breakOverride,
+            );
+        }
+
+        // 3) Libur perusahaan (rutin / event)
+        if ($daySetting?->is_company_holiday) {
+            $kind = $daySetting->holiday_kind === ShiftDaySetting::HOLIDAY_EVENT
+                ? ResolvedShiftDay::KIND_LIBUR_EVENT
+                : ResolvedShiftDay::KIND_LIBUR_HARI;
+
+            return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
+                kind: $kind,
+                label: 'Libur',
+                isExcused: true,
+                isCompanyHoliday: true,
+                workDurationOverride: $workOverride,
+                breakDurationOverride: $breakOverride,
+            );
+        }
+
+        // 4) Tukar sif override
+        $shiftOverride = ShiftEmployeeShiftOverride::query()
+            ->with('schedule')
+            ->where('employee_id', $employeeId)
+            ->whereDate('work_date', $day)
+            ->first();
+        if ($shiftOverride?->schedule) {
+            return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
+                kind: ResolvedShiftDay::KIND_WORK,
+                schedule: $this->withDayOverrides($shiftOverride->schedule, $workOverride, $breakOverride),
+                label: $shiftOverride->schedule->name,
+                workDurationOverride: $workOverride,
+                breakDurationOverride: $breakOverride,
+            );
+        }
+
+        // 5) Roster langsung per karyawan (tanpa group)
+        $directEntry = ShiftCalendarEntry::query()
+            ->with('schedule')
+            ->where('employee_id', $employeeId)
+            ->whereDate('work_date', $day)
+            ->orderBy('sort_order')
+            ->first();
+        if ($directEntry?->schedule) {
+            return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
+                kind: ResolvedShiftDay::KIND_WORK,
+                schedule: $this->withDayOverrides($directEntry->schedule, $workOverride, $breakOverride),
+                label: $directEntry->schedule->name,
+                workDurationOverride: $workOverride,
+                breakDurationOverride: $breakOverride,
+            );
+        }
+
+        // 6) Roster: group membership → calendar entry
+        $group = app(ShiftGroupService::class)->groupForEmployeeOnDate($employeeId, $day);
+        if ($group && ! $group->is_system_unassigned) {
+            $entry = ShiftCalendarEntry::query()
+                ->with('schedule')
+                ->where('group_id', $group->id)
+                ->whereDate('work_date', $day)
+                ->orderBy('sort_order')
+                ->first();
+
+            if ($entry?->schedule) {
+                return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
+                    kind: ResolvedShiftDay::KIND_WORK,
+                    schedule: $this->withDayOverrides($entry->schedule, $workOverride, $breakOverride),
+                    label: $entry->schedule->name,
+                    workDurationOverride: $workOverride,
+                    breakDurationOverride: $breakOverride,
+                );
+            }
+        }
+
+        // Fallback legacy: assignment / rotation / default (masa transisi)
+        $legacy = $this->legacySchedule($employeeId, $day);
+        if ($legacy) {
+            return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
+                kind: ResolvedShiftDay::KIND_WORK,
+                schedule: $this->withDayOverrides($legacy, $workOverride, $breakOverride),
+                label: $legacy->name,
+                workDurationOverride: $workOverride,
+                breakDurationOverride: $breakOverride,
+            );
+        }
+
+        return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
+            kind: ResolvedShiftDay::KIND_UNSCHEDULED,
+            label: 'Tidak dijadwalkan',
+            isExcused: true,
+        );
+    }
+
+    /**
+     * Jadwal karyawan pada tanggal (kompatibel konsumen lama).
+     * Mengembalikan WorkSchedule jika hari kerja; null jika libur/unscheduled.
      */
     public function forEmployeeOnDate(Employee|string $employee, Carbon|string $date): ?WorkSchedule
     {
         $employeeId = $employee instanceof Employee ? $employee->id : $employee;
-        $day = $date instanceof Carbon
-            ? $date->copy()->timezone(AppTimezone::display())->toDateString()
-            : Carbon::parse($date, AppTimezone::display())->toDateString();
+        $day = $this->toDateString($date);
+        $cacheKey = 'sched|'.$employeeId.'|'.$day;
 
-        $cacheKey = $employeeId.'|'.$day;
         if (array_key_exists($cacheKey, $this->scheduleCache)) {
             return $this->scheduleCache[$cacheKey];
         }
 
-        $rotation = app(ShiftRotationService::class);
+        $resolved = $this->resolveDay($employeeId, $day);
+        $schedule = $resolved->isWorkDay() ? $resolved->schedule : null;
 
-        $override = $rotation->overrideFor($employeeId, $day);
-        if ($override?->schedule) {
-            return $this->scheduleCache[$cacheKey] = $override->schedule;
-        }
-
-        $placement = $rotation->basePlacement($employeeId, $day);
-        $rotated = $rotation->applyRotationToPlacement($placement, $day);
-        if ($rotated) {
-            return $this->scheduleCache[$cacheKey] = $rotated;
-        }
-
-        return $this->scheduleCache[$cacheKey] = $placement
-            ?? WorkSchedule::active()
-            ?? WorkSchedule::query()->orderBy('created_at')->first();
+        return $this->scheduleCache[$cacheKey] = $schedule;
     }
 
-    /**
-     * Jadwal tanpa override (penempatan ± rotasi).
-     */
     public function baseScheduleForEmployeeOnDate(Employee|string $employee, Carbon|string $date): ?WorkSchedule
     {
-        $employeeId = $employee instanceof Employee ? $employee->id : $employee;
-        $day = $date instanceof Carbon
-            ? $date->copy()->timezone(AppTimezone::display())->toDateString()
-            : Carbon::parse($date, AppTimezone::display())->toDateString();
-
-        $rotation = app(ShiftRotationService::class);
-        $placement = $rotation->basePlacement($employeeId, $day);
-        $rotated = $rotation->applyRotationToPlacement($placement, $day);
-
-        return $rotated
-            ?? $placement
-            ?? WorkSchedule::active()
-            ?? WorkSchedule::query()->orderBy('created_at')->first();
-    }
-
-    private function assignmentOrDefault(string $employeeId, string $day): ?WorkSchedule
-    {
-        $placement = app(ShiftRotationService::class)->basePlacement($employeeId, $day);
-
-        return $placement
-            ?? WorkSchedule::active()
-            ?? WorkSchedule::query()->orderBy('created_at')->first();
+        return $this->forEmployeeOnDate($employee, $date);
     }
 
     /**
-     * Map employee_id => work_schedule_id untuk banyak karyawan di satu tanggal.
-     *
      * @param  iterable<int, string>  $employeeIds
      * @return array<string, string|null>
      */
@@ -97,10 +203,7 @@ class ShiftResolver
             return [];
         }
 
-        $day = $date instanceof Carbon
-            ? $date->copy()->timezone(AppTimezone::display())->toDateString()
-            : Carbon::parse($date, AppTimezone::display())->toDateString();
-
+        $day = $this->toDateString($date);
         $map = [];
         foreach ($ids as $id) {
             $map[(string) $id] = $this->forEmployeeOnDate($id, $day)?->id;
@@ -109,9 +212,6 @@ class ShiftResolver
         return $map;
     }
 
-    /**
-     * Assignment aktif hari ini (untuk UI karyawan).
-     */
     public function currentAssignment(Employee|string $employee, ?string $onDate = null): ?EmployeeShiftAssignment
     {
         $employeeId = $employee instanceof Employee ? $employee->id : $employee;
@@ -129,10 +229,6 @@ class ShiftResolver
             ->first();
     }
 
-    /**
-     * Set / ganti shift karyawan mulai tanggal tertentu (assignment tetap).
-     * Karyawan di tim rotasi sebaiknya diubah lewat Tim / Override.
-     */
     public function assign(
         Employee|string $employee,
         WorkSchedule|string $schedule,
@@ -172,9 +268,6 @@ class ShiftResolver
         ])->load('schedule');
     }
 
-    /**
-     * Tukar shift permanen (assignment tetap) antara dua karyawan.
-     */
     public function swap(Employee|string $employeeA, Employee|string $employeeB, ?string $effectiveFrom = null): void
     {
         $idA = $employeeA instanceof Employee ? $employeeA->id : $employeeA;
@@ -203,8 +296,6 @@ class ShiftResolver
     }
 
     /**
-     * Rolling assignment tetap (circular). Untuk pola otomatis pakai Tim + Rotasi.
-     *
      * @param  list<string>  $employeeIds
      */
     public function rotate(array $employeeIds, ?string $effectiveFrom = null, int $steps = 1): void
@@ -259,5 +350,57 @@ class ShiftResolver
         $this->forgetCache();
 
         return $count;
+    }
+
+    private function legacySchedule(string $employeeId, string $day): ?WorkSchedule
+    {
+        if (! class_exists(ShiftRotationService::class)) {
+            return WorkSchedule::active();
+        }
+
+        try {
+            $rotation = app(ShiftRotationService::class);
+            $override = $rotation->overrideFor($employeeId, $day);
+            if ($override?->schedule) {
+                return $override->schedule;
+            }
+
+            $placement = $rotation->basePlacement($employeeId, $day);
+            $rotated = $rotation->applyRotationToPlacement($placement, $day);
+
+            return $rotated
+                ?? $placement
+                ?? WorkSchedule::active()
+                ?? WorkSchedule::query()->orderBy('created_at')->first();
+        } catch (\Throwable) {
+            return WorkSchedule::active()
+                ?? WorkSchedule::query()->orderBy('created_at')->first();
+        }
+    }
+
+    private function withDayOverrides(WorkSchedule $schedule, ?int $work, ?int $break): WorkSchedule
+    {
+        if ($work === null && $break === null) {
+            return $schedule;
+        }
+
+        $clone = $schedule->replicate();
+        $clone->id = $schedule->id;
+        $clone->exists = true;
+        if ($work !== null) {
+            $clone->work_duration_minutes = $work;
+        }
+        if ($break !== null) {
+            $clone->break_duration_minutes = $break;
+        }
+
+        return $clone;
+    }
+
+    private function toDateString(Carbon|string $date): string
+    {
+        return $date instanceof Carbon
+            ? $date->copy()->timezone(AppTimezone::display())->toDateString()
+            : Carbon::parse($date, AppTimezone::display())->toDateString();
     }
 }

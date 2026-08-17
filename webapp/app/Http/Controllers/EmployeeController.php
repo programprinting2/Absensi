@@ -79,6 +79,7 @@ class EmployeeController extends Controller
         ]);
 
         $employee->fill(collect($data)->except(['pin', 'pin_confirmation', 'is_active'])->toArray());
+        $wasActive = (bool) $employee->is_active;
         $employee->is_active = $data['is_active'];
 
         if (! empty($data['pin'])) {
@@ -89,6 +90,10 @@ class EmployeeController extends Controller
         }
 
         $employee->save();
+
+        if ($wasActive && ! $employee->is_active) {
+            app(\App\Services\ShiftGroupService::class)->deactivateEmployee($employee);
+        }
 
         EmployeeListUpdated::dispatch();
 

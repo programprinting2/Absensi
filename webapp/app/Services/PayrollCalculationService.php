@@ -440,7 +440,7 @@ class PayrollCalculationService
 
         return [
             'late_count' => $pivoted->where('is_late', true)->count(),
-            'absent_days' => $pivoted->where('status', 'Tidak Masuk')->count(),
+            'absent_days' => $pivoted->whereIn('status', ['Tidak Masuk', 'Off'])->count(),
             'early_out_count' => $pivoted->where('is_early_out', true)->count(),
             'over_break_count' => $pivoted->where('is_over_break', true)->count(),
             'overtime_hours' => round($overtimeMinutes / 60, 2),

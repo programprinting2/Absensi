@@ -448,7 +448,7 @@ new #[Layout('layouts.app')] class extends Component
                 'total' => $group->count(),
                 'ok' => $group->where('compliance_ok', true)->count(),
                 'not_ok' => $group->filter(fn ($r) => empty($r['compliance_ok']))->count(),
-                'tidak_masuk' => $group->where('status', 'Tidak Masuk')->count(),
+                'tidak_masuk' => $group->whereIn('status', ['Tidak Masuk', 'Off'])->count(),
                 'terlambat' => $group->where('is_late', true)->count(),
                 'istirahat_lebih' => $group->where('is_over_break', true)->count(),
                 'pulang_awal' => $group->where('is_early_out', true)->count(),

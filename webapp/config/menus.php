@@ -86,6 +86,15 @@ return [
             'defaults' => ['employee'],
         ],
         [
+            'key' => 'employee.shifts',
+            'label' => 'Jadwal Saya',
+            'route' => 'employee.shifts',
+            'patterns' => ['employee.shifts'],
+            'icon' => 'shift',
+            'sidebar' => true,
+            'defaults' => ['employee'],
+        ],
+        [
             'key' => 'reports',
             'label' => 'Laporan',
             'route' => 'reports.attendance',
