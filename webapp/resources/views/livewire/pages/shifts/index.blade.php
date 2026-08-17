@@ -1923,8 +1923,21 @@ new #[Layout('layouts.app')] class extends Component
                                             </div>
                                         </div>
 
-                                        <div class="grid grid-cols-7 gap-2.5" style="padding: 0.625rem;">
+                                        <div class="space-y-4" style="padding: 0.625rem;">
                                 @foreach ($board['weeks'] as $wi => $week)
+                                    <section wire:key="shift-week-{{ $wi }}-{{ $week[0]['date'] ?? $wi }}" class="rounded-lg border border-gray-200 bg-gray-50/60 overflow-hidden">
+                                        <div class="flex items-center gap-3 border-b border-gray-200 bg-white px-3 py-2">
+                                            <span class="inline-flex shrink-0 items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium uppercase tracking-wide text-gray-600">
+                                                Minggu {{ $wi + 1 }}
+                                            </span>
+                                            <div class="flex-1 border-t border-dashed border-gray-300"></div>
+                                            <span class="shrink-0 text-xs font-medium text-gray-500 tabular-nums">
+                                                {{ \Illuminate\Support\Carbon::parse($week[0]['date'])->translatedFormat('d M') }}
+                                                –
+                                                {{ \Illuminate\Support\Carbon::parse($week[6]['date'])->translatedFormat('d M Y') }}
+                                            </span>
+                                        </div>
+                                        <div class="grid grid-cols-7 gap-2.5 p-2.5">
                                     @foreach ($week as $cell)
                                         @php
                                             $monthShort = mb_strtoupper(mb_substr(
@@ -2146,6 +2159,8 @@ new #[Layout('layouts.app')] class extends Component
                                             @endif
                                         </div>
                                     @endforeach
+                                        </div>
+                                    </section>
                                 @endforeach
                                         </div>
                                     </div>
