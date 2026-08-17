@@ -1354,6 +1354,50 @@ class ShiftCalendarService
     }
 
     /**
+     * Payload kalender karyawan: struktur boardPayload + resolusi jadwal pribadi per tanggal.
+     *
+     * @return array<string, mixed>
+     */
+    public function employeeScheduleBoard(
+        Employee|string $employee,
+        string $viewMode = 'block',
+        ?string $blockStart = null,
+        ?int $viewYear = null,
+        ?int $viewMonth = null,
+    ): array {
+        $employeeId = $employee instanceof Employee ? $employee->id : $employee;
+        $board = $this->boardPayload($viewMode, $blockStart, $viewYear, $viewMonth, false);
+        $resolver = app(ShiftResolver::class);
+        $scheduleColors = ['#dbeafe', '#fce7f3', '#fef9c3', '#dcfce7', '#e0e7ff'];
+
+        foreach ($board['weeks'] as &$week) {
+            foreach ($week as &$cell) {
+                $resolved = $resolver->resolveDay($employeeId, $cell['date']);
+                $scheduleIndex = $resolved->schedule
+                    ? $board['schedules']->search(
+                        fn (WorkSchedule $s) => (string) $s->id === (string) $resolved->schedule->id,
+                    )
+                    : false;
+                $cell['mine'] = [
+                    'kind' => $resolved->kind,
+                    'label' => $resolved->statusLabel(),
+                    'is_work' => $resolved->isWorkDay(),
+                    'schedule_id' => $resolved->schedule?->id,
+                    'schedule_name' => $resolved->schedule?->name,
+                    'schedule_color' => $scheduleIndex !== false
+                        ? $scheduleColors[$scheduleIndex % count($scheduleColors)]
+                        : null,
+                    'clock_in' => $resolved->schedule?->clock_in_time,
+                    'clock_out' => $resolved->schedule?->clock_out_time,
+                ];
+            }
+        }
+        unset($week, $cell);
+
+        return $board;
+    }
+
+    /**
      * @return Collection<string, Collection<int, ShiftGroupMember>>
      */
     private function membershipsByGroup(string $start, string $end): Collection

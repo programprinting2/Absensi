@@ -244,16 +244,37 @@ new #[Layout('layouts.app')] class extends Component
 
     public function toggleCalendarEditMode(): void
     {
-        $this->calendarEditMode = ! $this->calendarEditMode;
-        $this->rememberCalendarPreferences();
-        if (! $this->calendarEditMode) {
-            $this->selectedDates = [];
-            $this->showDayMenu = false;
-            $this->showTemplateSettings = false;
-            $this->showSaveNewTemplateModal = false;
+        if ($this->calendarEditMode) {
+            $this->exitCalendarEditMode();
         } else {
+            $this->calendarEditMode = true;
             $this->pruneSelectedDatesToEditable();
         }
+        $this->rememberCalendarPreferences();
+    }
+
+    private function exitCalendarEditMode(): void
+    {
+        if (! $this->calendarEditMode) {
+            return;
+        }
+
+        $this->calendarEditMode = false;
+        $this->selectedDates = [];
+        $this->showDayMenu = false;
+        $this->showTemplateSettings = false;
+        $this->showSaveNewTemplateModal = false;
+        $this->closeMemberPanel();
+    }
+
+    public function exitCalendarEditModeForNavigation(): void
+    {
+        $this->exitCalendarEditMode();
+    }
+
+    public function updatedTab(string $tab): void
+    {
+        $this->exitCalendarEditMode();
     }
 
     private function ensureCalendarEditMode(): bool
@@ -1488,10 +1509,17 @@ new #[Layout('layouts.app')] class extends Component
             if (value) {
                 this.showPoolPanel = true;
             } else {
+                this.showPoolPanel = false;
                 this.showDayMenu = false;
                 this.showTemplateSettings = false;
             }
         });
+        this._exitEditOnNavigate = () => {
+            if (this.$wire?.calendarEditMode) {
+                this.$wire.exitCalendarEditModeForNavigation();
+            }
+        };
+        document.addEventListener('livewire:navigating', this._exitEditOnNavigate);
     },
     onCalendarUiClick(e) {
         const dayBtn = e.target.closest('[data-open-day-menu]');
@@ -1926,7 +1954,7 @@ new #[Layout('layouts.app')] class extends Component
                                         <div class="space-y-4" style="padding: 0.625rem;">
                                 @foreach ($board['weeks'] as $wi => $week)
                                     <section wire:key="shift-week-{{ $wi }}-{{ $week[0]['date'] ?? $wi }}" class="rounded-lg border border-gray-200 bg-gray-50/60 overflow-hidden">
-                                        <div class="flex items-center gap-3 border-b border-gray-200 bg-white px-3 py-2">
+                                        <div class="flex items-center gap-3 border-b border-gray-200 bg-gray-50/60 px-3 py-2 rounded-t-lg">
                                             <span class="inline-flex shrink-0 items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium uppercase tracking-wide text-gray-600">
                                                 Minggu {{ $wi + 1 }}
                                             </span>
@@ -1980,17 +2008,28 @@ new #[Layout('layouts.app')] class extends Component
                                                 @endif
                                                 @if (!empty($cell['national']['name']))
                                                     <span
-                                                        x-data="{ showHolidayTip: false }"
+                                                        x-data="{
+                                                            showHolidayTip: false,
+                                                            holidayTipStyle: '',
+                                                            showTip() {
+                                                                const r = this.$el.getBoundingClientRect();
+                                                                const left = Math.max(8, Math.min(r.left, window.innerWidth - 288));
+                                                                this.holidayTipStyle = `left:${left}px;top:${r.top - 4}px;transform:translateY(-100%)`;
+                                                                this.showHolidayTip = true;
+                                                            },
+                                                        }"
                                                         class="relative min-w-0 flex-1 self-stretch inline-flex cursor-pointer items-center overflow-visible rounded px-1 text-xs text-red-700 bg-red-100 box-border"
-                                                        @mouseenter="showHolidayTip = true"
+                                                        @mouseenter="showTip()"
                                                         @mouseleave="showHolidayTip = false"
                                                     >
-                                                        <span
-                                                            x-show="showHolidayTip"
-                                                            role="tooltip"
-                                                            class="pointer-events-none absolute left-0 right-0 bottom-full z-[200] mb-1"
-                                                            style="padding: 0.375rem 0.625rem; border-radius: 0.375rem; background-color: #111827; color: #ffffff; font-size: 0.75rem; font-weight: 500; line-height: 1.35; box-shadow: 0 4px 14px rgba(0,0,0,0.25); white-space: normal;"
-                                                        >{{ $cell['national']['name'] }}</span>
+                                                        <template x-teleport="body">
+                                                            <span
+                                                                x-show="showHolidayTip"
+                                                                role="tooltip"
+                                                                :style="holidayTipStyle"
+                                                                class="pointer-events-none fixed z-[9999] max-w-[280px] rounded-md bg-gray-900 px-2.5 py-1.5 text-xs font-medium leading-snug text-white shadow-lg whitespace-normal"
+                                                            >{{ $cell['national']['name'] }}</span>
+                                                        </template>
                                                         <span class="min-w-0 truncate">{{ $cell['national']['name'] }}</span>
                                                     </span>
                                                 @else
@@ -2028,26 +2067,40 @@ new #[Layout('layouts.app')] class extends Component
                                                             $scheduleHoursLabel = substr((string) $sched->clock_in_time, 0, 5).' ~ '.substr((string) $sched->clock_out_time, 0, 5);
                                                         @endphp
                                                         <div class="relative overflow-visible rounded flex flex-col min-w-0"
-                                                            x-data="{ showScheduleTip: false }"
+                                                            x-data="{
+                                                                showScheduleTip: false,
+                                                                scheduleTipStyle: '',
+                                                                showTip() {
+                                                                    const r = this.$el.querySelector('[data-schedule-tip-trigger]')?.getBoundingClientRect()
+                                                                        ?? this.$el.getBoundingClientRect();
+                                                                    const left = Math.min(r.right + 4, window.innerWidth - 8);
+                                                                    const top = r.top + (r.height / 2);
+                                                                    this.scheduleTipStyle = `left:${left}px;top:${top}px;transform:translateY(-50%)`;
+                                                                    this.showScheduleTip = true;
+                                                                },
+                                                            }"
                                                             style="padding: 0.5rem; gap: 0.5rem; background: {{ ['#dbeafe','#fce7f3','#fef9c3','#dcfce7','#e0e7ff'][$loop->index % 5] }}"
                                                             @if ($cellEditable)
                                                                 @dragover.prevent
                                                                 @drop.prevent="onDropToShift('{{ $sched->id }}', '{{ $cell['date'] }}', $event)"
                                                             @endif>
-                                                            <span
-                                                                x-show="showScheduleTip"
-                                                                role="tooltip"
-                                                                class="pointer-events-none absolute left-1/2 bottom-full z-[200] mb-1 w-max -translate-x-1/2 text-center"
-                                                                style="padding: 0.375rem 0.625rem; border-radius: 0.375rem; background-color: #111827; color: #ffffff; font-size: 0.75rem; font-weight: 500; line-height: 1.35; box-shadow: 0 4px 14px rgba(0,0,0,0.25); white-space: nowrap;"
-                                                            >
-                                                                <span class="block font-semibold">{{ $sched->name }}</span>
-                                                                <span class="block font-mono tabular-nums">{{ $scheduleHoursLabel }}</span>
-                                                            </span>
-                                                            <div class="text-[9px] font-semibold text-gray-500 truncate cursor-default"
-                                                                @mouseenter="showScheduleTip = true"
+                                                            <template x-teleport="body">
+                                                                <span
+                                                                    x-show="showScheduleTip"
+                                                                    role="tooltip"
+                                                                    :style="scheduleTipStyle"
+                                                                    class="pointer-events-none fixed z-[9999] w-max rounded-md bg-gray-900 px-2.5 py-1.5 text-center text-xs font-medium leading-snug text-white shadow-lg whitespace-nowrap"
+                                                                >
+                                                                    <span class="block font-semibold">{{ $sched->name }}</span>
+                                                                    <span class="block font-mono tabular-nums">{{ $scheduleHoursLabel }}</span>
+                                                                </span>
+                                                            </template>
+                                                            <span data-schedule-tip-trigger
+                                                                class="inline-block w-max max-w-full truncate text-[9px] font-semibold text-gray-500 cursor-default"
+                                                                @mouseenter="showTip()"
                                                                 @mouseleave="showScheduleTip = false">
                                                                 {{ $sched->name }}
-                                                            </div>
+                                                            </span>
                                                             <div class="flex flex-col min-w-0" style="gap: 0.5rem">
                                                                 @forelse ($chips as $chip)
                                                                     @php
@@ -2062,7 +2115,7 @@ new #[Layout('layouts.app')] class extends Component
                                                                         ];
                                                                         $chipDraggable = $cellEditable && in_array($chipKind, ['group', 'employee'], true);
                                                                     @endphp
-                                                                    <div class="relative flex w-full min-w-0 items-stretch rounded text-[10px] font-semibold text-white"
+                                                                    <div class="relative flex w-full min-w-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-white"
                                                                         style="background: {{ $chip['color'] }}">
                                                                         <button type="button"
                                                                             @if ($chipDraggable) draggable="true" @dragstart="onDragStartCalendarChip(@js($chipDragPayload), $event)" @endif
@@ -2071,37 +2124,32 @@ new #[Layout('layouts.app')] class extends Component
                                                                             @elseif (!empty($chip['employee_id']))
                                                                                 wire:click="openEmployeePanel('{{ $cell['date'] }}', '{{ $chip['employee_id'] }}')"
                                                                             @endif
-                                                                            class="flex flex-1 min-w-0 items-center rounded-l px-1.5 py-0.5 text-left"
+                                                                            class="flex-1 min-w-0 truncate text-left p-0 bg-transparent border-0 font-semibold text-white"
                                                                             title="{{ $chipKind === 'group' ? 'Klik: anggota · Drag: pindah' : ($chipKind === 'swap_pending' ? 'Menunggu persetujuan tukar sif' : 'Klik: pengaturan · Drag: pindah') }}">
-                                                                            <span class="truncate">{{ $chip['name'] }}</span>
+                                                                            {{ $chip['name'] }}
                                                                         </button>
                                                                         @if ($chipKind === 'group')
                                                                             <x-chip-count
                                                                                 :count="max(0, (int) ($chip['member_count'] ?? 0))"
-                                                                                class="self-center pl-0.5"
+                                                                                class="shrink-0"
                                                                             />
                                                                         @endif
                                                                         @if ($cellEditable && !empty($chip['entry_id']))
                                                                             <button type="button"
                                                                                 wire:click.stop="removeCalendarEntry('{{ $chip['entry_id'] }}')"
-                                                                                class="shrink-0 flex items-center justify-center px-1.5 py-0.5 text-white hover:bg-white/10 rounded-r leading-none"
+                                                                                class="shrink-0 flex items-center justify-center p-0 text-white hover:bg-white/10 rounded leading-none"
                                                                                 title="Hapus dari kalender">
                                                                                 <span class="text-[11px] font-bold leading-none">&times;</span>
                                                                             </button>
                                                                         @elseif ($cellEditable && $chipKind === 'override' && !empty($chip['employee_id']))
                                                                             <button type="button"
                                                                                 wire:click.stop="clearEmployeeShiftOverride('{{ $chip['employee_id'] }}', '{{ $cell['date'] }}')"
-                                                                                class="shrink-0 flex items-center justify-center px-1.5 py-0.5 text-white hover:bg-white/10 rounded-r leading-none"
+                                                                                class="shrink-0 flex items-center justify-center p-0 text-white hover:bg-white/10 rounded leading-none"
                                                                                 title="Batalkan override sif">
                                                                                 <span class="text-[11px] font-bold leading-none">&times;</span>
                                                                             </button>
-                                                                        @elseif (! $cellEditable && $chipKind === 'group')
-                                                                            <span
-                                                                                class="shrink-0 flex items-center justify-center px-1.5 py-0.5 text-[11px] font-bold leading-none opacity-0 select-none pointer-events-none"
-                                                                                aria-hidden="true"
-                                                                            >&times;</span>
                                                                         @elseif (! $cellEditable && $chipKind === 'override' && !empty($chip['employee_id']))
-                                                                            <span class="shrink-0 self-center px-1 text-[8px] uppercase opacity-80">ovr</span>
+                                                                            <span class="shrink-0 text-[8px] uppercase opacity-80 leading-none">ovr</span>
                                                                         @endif
                                                                     </div>
                                                                 @empty
