@@ -31,7 +31,7 @@ class ShiftResolver
      * Resolusi lengkap hari kerja karyawan.
      *
      * Urutan: libur request → libur karyawan → libur perusahaan (hari/event)
-     * → tukar sif override → roster kalender group → unscheduled.
+     * → tukar sif override → roster kalender (karyawan/group) → jadwal belum diatur.
      */
     public function resolveDay(Employee|string $employee, Carbon|string $date): ResolvedShiftDay
     {
@@ -148,21 +148,9 @@ class ShiftResolver
             }
         }
 
-        // Fallback legacy: assignment / rotation / default (masa transisi)
-        $legacy = $this->legacySchedule($employeeId, $day);
-        if ($legacy) {
-            return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
-                kind: ResolvedShiftDay::KIND_WORK,
-                schedule: $this->withDayOverrides($legacy, $workOverride, $breakOverride),
-                label: $legacy->name,
-                workDurationOverride: $workOverride,
-                breakDurationOverride: $breakOverride,
-            );
-        }
-
         return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
             kind: ResolvedShiftDay::KIND_UNSCHEDULED,
-            label: 'Tidak dijadwalkan',
+            label: 'Jadwal belum diatur',
             isExcused: true,
         );
     }
@@ -350,32 +338,6 @@ class ShiftResolver
         $this->forgetCache();
 
         return $count;
-    }
-
-    private function legacySchedule(string $employeeId, string $day): ?WorkSchedule
-    {
-        if (! class_exists(ShiftRotationService::class)) {
-            return WorkSchedule::active();
-        }
-
-        try {
-            $rotation = app(ShiftRotationService::class);
-            $override = $rotation->overrideFor($employeeId, $day);
-            if ($override?->schedule) {
-                return $override->schedule;
-            }
-
-            $placement = $rotation->basePlacement($employeeId, $day);
-            $rotated = $rotation->applyRotationToPlacement($placement, $day);
-
-            return $rotated
-                ?? $placement
-                ?? WorkSchedule::active()
-                ?? WorkSchedule::query()->orderBy('created_at')->first();
-        } catch (\Throwable) {
-            return WorkSchedule::active()
-                ?? WorkSchedule::query()->orderBy('created_at')->first();
-        }
     }
 
     private function withDayOverrides(WorkSchedule $schedule, ?int $work, ?int $break): WorkSchedule

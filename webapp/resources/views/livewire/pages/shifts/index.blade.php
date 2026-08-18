@@ -248,6 +248,11 @@ new #[Layout('layouts.app')] class extends Component
             $this->exitCalendarEditMode();
         } else {
             $this->calendarEditMode = true;
+            $anchorStart = $this->activeRepeatingAnchorStart();
+            if ($anchorStart !== null) {
+                $this->calendarViewMode = 'block';
+                $this->blockStart = $anchorStart;
+            }
             $this->pruneSelectedDatesToEditable();
         }
         $this->rememberCalendarPreferences();
@@ -288,13 +293,58 @@ new #[Layout('layouts.app')] class extends Component
         return false;
     }
 
+    private function activeRepeatingAnchorStart(): ?string
+    {
+        if ($this->activeTemplateId === '') {
+            return null;
+        }
+
+        $template = ShiftScheduleTemplate::query()->find($this->activeTemplateId);
+        if (! $template?->is_default) {
+            return null;
+        }
+
+        $anchorStart = $template->payload['anchor_start'] ?? null;
+
+        return is_string($anchorStart) && $anchorStart !== '' ? $anchorStart : null;
+    }
+
+    private function isDateInActiveRepeatingAnchor(string $date): bool
+    {
+        $anchorStart = $this->activeRepeatingAnchorStart();
+        if ($anchorStart === null) {
+            return true;
+        }
+
+        $anchor = Carbon::parse($anchorStart, AppTimezone::display())->startOfDay();
+        $candidate = Carbon::parse($date, AppTimezone::display())->startOfDay();
+
+        return $candidate->betweenIncluded($anchor, $anchor->copy()->addDays(27));
+    }
+
+    private function ensureRepeatingAnchorView(): bool
+    {
+        $anchorStart = $this->activeRepeatingAnchorStart();
+        if (
+            $anchorStart === null
+            || ($this->calendarViewMode === 'block' && $this->blockStart === $anchorStart)
+        ) {
+            return true;
+        }
+
+        Toast::error('Halaman ini hanya dapat dilihat. Kembali ke blok 4 minggu acuan untuk melakukan perubahan.', $this);
+
+        return false;
+    }
+
     public function isCalendarDateEditable(string $date): bool
     {
         if (! $this->calendarEditMode) {
             return false;
         }
 
-        return $this->isCalendarDateInView($date);
+        return $this->isCalendarDateInView($date)
+            && $this->isDateInActiveRepeatingAnchor($date);
     }
 
     public function isCalendarDateInView(string $date): bool
@@ -311,7 +361,8 @@ new #[Layout('layouts.app')] class extends Component
 
     public function canManageLiburOnDate(string $date): bool
     {
-        return $this->isCalendarDateInView($date);
+        return $this->isCalendarDateInView($date)
+            && $this->isDateInActiveRepeatingAnchor($date);
     }
 
     private function ensureCanManageLiburOnDate(string $date): bool
@@ -332,7 +383,10 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         if (! $this->isCalendarDateEditable($date)) {
-            Toast::error('Hari di luar bulan ini tidak dapat diubah di tampilan Kalender.', $this);
+            $message = $this->activeRepeatingAnchorStart() !== null
+                ? 'Saat pola berulang aktif, perubahan hanya dapat dilakukan pada blok 4 minggu acuan.'
+                : 'Hari di luar bulan ini tidak dapat diubah di tampilan Kalender.';
+            Toast::error($message, $this);
 
             return false;
         }
@@ -342,7 +396,7 @@ new #[Layout('layouts.app')] class extends Component
 
     private function pruneSelectedDatesToEditable(): void
     {
-        if ($this->calendarViewMode !== 'month' || $this->selectedDates === []) {
+        if ($this->selectedDates === []) {
             return;
         }
 
@@ -355,6 +409,12 @@ new #[Layout('layouts.app')] class extends Component
     public function setCalendarViewMode(string $mode, ShiftCalendarService $calendar): void
     {
         if (! in_array($mode, ['block', 'month'], true)) {
+            return;
+        }
+
+        if ($mode === 'month' && $this->calendarEditMode && $this->activeRepeatingAnchorStart() !== null) {
+            Toast::error('Mode pola berulang hanya dapat diatur dari Blok 4 Minggu acuan.', $this);
+
             return;
         }
 
@@ -377,6 +437,19 @@ new #[Layout('layouts.app')] class extends Component
         $this->calendarViewMode = $mode;
         $this->selectedDates = [];
         $this->pruneSelectedDatesToEditable();
+        $this->rememberCalendarPreferences();
+    }
+
+    public function goToRepeatingAnchor(): void
+    {
+        $anchorStart = $this->activeRepeatingAnchorStart();
+        if ($anchorStart === null) {
+            return;
+        }
+
+        $this->calendarViewMode = 'block';
+        $this->blockStart = $anchorStart;
+        $this->selectedDates = [];
         $this->rememberCalendarPreferences();
     }
 
@@ -718,6 +791,60 @@ new #[Layout('layouts.app')] class extends Component
         Toast::success('Group dihapus dari hari ini.', $this);
     }
 
+    public function moveCalendarChip(
+        string $kind,
+        string $itemId,
+        string $fromDate,
+        string $fromScheduleId,
+        string $toDate,
+        string $toScheduleId,
+        ShiftCalendarService $calendar,
+    ): void {
+        if (
+            ! $this->ensureCanEditCalendarDate($fromDate)
+            || ! $this->ensureCanEditCalendarDate($toDate)
+        ) {
+            return;
+        }
+
+        if ($fromDate === $toDate && $fromScheduleId === $toScheduleId) {
+            return;
+        }
+
+        try {
+            if ($kind === 'group') {
+                $calendar->moveGroupOnCalendar(
+                    $itemId,
+                    $fromDate,
+                    $fromScheduleId,
+                    $toDate,
+                    $toScheduleId,
+                );
+                Toast::success('Group berhasil dipindahkan.', $this);
+
+                return;
+            }
+
+            if ($kind === 'employee') {
+                $employee = Employee::findOrFail($itemId);
+                $calendar->moveEmployeeOnCalendar(
+                    $itemId,
+                    $fromDate,
+                    $fromScheduleId,
+                    $toDate,
+                    $toScheduleId,
+                );
+                Toast::success($employee->full_name.' berhasil dipindahkan.', $this);
+
+                return;
+            }
+
+            Toast::error('Jenis item kalender tidak valid.', $this);
+        } catch (\Throwable $e) {
+            Toast::error($e->getMessage(), $this);
+        }
+    }
+
     public function openDayMenu(string $date): void
     {
         if (! $this->ensureCanEditCalendarDate($date)) {
@@ -902,7 +1029,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function saveTemplate(ShiftCalendarService $calendar): void
     {
-        if (! $this->ensureCalendarEditMode()) {
+        if (! $this->ensureCalendarEditMode() || ! $this->ensureRepeatingAnchorView()) {
             return;
         }
 
@@ -924,7 +1051,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function updateSelectedTemplate(ShiftCalendarService $calendar): void
     {
-        if (! $this->ensureCalendarEditMode()) {
+        if (! $this->ensureCalendarEditMode() || ! $this->ensureRepeatingAnchorView()) {
             return;
         }
 
@@ -970,7 +1097,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function clearCalendar(ShiftCalendarService $calendar): void
     {
-        if (! $this->ensureCalendarEditMode()) {
+        if (! $this->ensureCalendarEditMode() || ! $this->ensureRepeatingAnchorView()) {
             return;
         }
 
@@ -1035,7 +1162,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function loadTemplate(ShiftCalendarService $calendar): void
     {
-        if (! $this->ensureCalendarEditMode()) {
+        if (! $this->ensureCalendarEditMode() || ! $this->ensureRepeatingAnchorView()) {
             return;
         }
 
@@ -1061,7 +1188,7 @@ new #[Layout('layouts.app')] class extends Component
 
     public function copyWeek(ShiftCalendarService $calendar): void
     {
-        if (! $this->ensureCalendarEditMode()) {
+        if (! $this->ensureCalendarEditMode() || ! $this->ensureRepeatingAnchorView()) {
             return;
         }
 
@@ -1333,6 +1460,21 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         $repeatingPatternActive = $isCalendar && $activeTemplate?->is_default === true;
+        $repeatingAnchorStart = $repeatingPatternActive
+            ? ($activeTemplate->payload['anchor_start'] ?? null)
+            : null;
+        $repeatingAnchorEnd = is_string($repeatingAnchorStart) && $repeatingAnchorStart !== ''
+            ? Carbon::parse($repeatingAnchorStart, AppTimezone::display())->addDays(27)->toDateString()
+            : null;
+        $viewingRepeatingAnchor = ! $repeatingPatternActive
+            || (
+                $this->calendarViewMode === 'block'
+                && $repeatingAnchorStart !== null
+                && $this->blockStart === $repeatingAnchorStart
+            );
+        $repeatingEditLocked = $this->calendarEditMode
+            && $repeatingPatternActive
+            && ! $viewingRepeatingAnchor;
 
         $selectedTemplateForRepeating = null;
         $selectedTemplateRepeatingActive = false;
@@ -1359,6 +1501,10 @@ new #[Layout('layouts.app')] class extends Component
             'recentSwaps' => $recentSwaps,
             'pendingSwapCount' => $pendingSwapCount,
             'repeatingPatternActive' => $repeatingPatternActive,
+            'repeatingAnchorStart' => $repeatingAnchorStart,
+            'repeatingAnchorEnd' => $repeatingAnchorEnd,
+            'viewingRepeatingAnchor' => $viewingRepeatingAnchor,
+            'repeatingEditLocked' => $repeatingEditLocked,
             'selectedTemplateRepeatingActive' => $selectedTemplateRepeatingActive,
             'periodLabel' => $periodLabel,
         ];
@@ -1387,8 +1533,10 @@ new #[Layout('layouts.app')] class extends Component
                     <button
                         type="button"
                         wire:click="setCalendarViewMode('month')"
+                        @disabled($calendarEditMode && $repeatingPatternActive)
                         @class([
                             'inline-flex items-center justify-center h-7 shrink-0 rounded px-2.5 text-xs font-semibold whitespace-nowrap transition',
+                            'cursor-not-allowed opacity-40' => $calendarEditMode && $repeatingPatternActive,
                             $calendarViewMode === 'month'
                                 ? 'bg-[#f7340d] text-white'
                                 : 'text-gray-500 hover:text-gray-700',
@@ -1457,15 +1605,9 @@ new #[Layout('layouts.app')] class extends Component
             try {
                 const p = JSON.parse(raw);
                 if (p.kind === 'group') {
-                    $wire.placeGroup(p.group_id, scheduleId, date);
-                    if (p.date !== date || p.schedule_id !== scheduleId) {
-                        $wire.removeGroupChip(p.group_id, p.date, p.schedule_id);
-                    }
+                    $wire.moveCalendarChip('group', p.group_id, p.date, p.schedule_id, date, scheduleId);
                 } else if (p.kind === 'employee') {
-                    $wire.placeEmployee(p.employee_id, scheduleId, date);
-                    if (p.date !== date || p.schedule_id !== scheduleId) {
-                        $wire.removeEmployeeFromCalendar(p.employee_id, p.date, p.schedule_id);
-                    }
+                    $wire.moveCalendarChip('employee', p.employee_id, p.date, p.schedule_id, date, scheduleId);
                 }
             } catch (_) {}
         } else if (this.dragKind==='group' && this.dragGroupId) {
@@ -1808,7 +1950,7 @@ new #[Layout('layouts.app')] class extends Component
 
                                     <label class="{{ $fieldWrapClass }}">
                                         <span class="text-xs text-gray-500 leading-none">Copy minggu dari</span>
-                                        <select wire:model.live="copySourceWeek" class="{{ $fieldClass }}" style="{{ $copyFieldStyle }}">
+                                        <select wire:model.live="copySourceWeek" @disabled($repeatingEditLocked) class="{{ $fieldClass }} disabled:cursor-not-allowed disabled:opacity-40" style="{{ $copyFieldStyle }}">
                                             <option value="">— sumber —</option>
                                             <option value="{{ self::COPY_ALL_WEEKS }}">Semua Minggu</option>
                                             @foreach ($weekStarts as $i => $ws)
@@ -1818,7 +1960,7 @@ new #[Layout('layouts.app')] class extends Component
                                     </label>
                                     <label class="{{ $fieldWrapClass }}">
                                         <span class="text-xs text-gray-500 leading-none">ke</span>
-                                        <select wire:model="copyTargetWeek" class="{{ $fieldClass }}" style="{{ $copyFieldStyle }}">
+                                        <select wire:model="copyTargetWeek" @disabled($repeatingEditLocked) class="{{ $fieldClass }} disabled:cursor-not-allowed disabled:opacity-40" style="{{ $copyFieldStyle }}">
                                             <option value="">— tujuan —</option>
                                             <option value="{{ self::COPY_ALL_WEEKS }}">Semua Minggu</option>
                                             @if ($copySourceWeek === self::COPY_ALL_WEEKS)
@@ -1829,14 +1971,16 @@ new #[Layout('layouts.app')] class extends Component
                                             @endforeach
                                         </select>
                                     </label>
-                                    <button type="button" wire:click="copyWeek" class="{{ $btnClass }} bg-gray-800 text-white hover:bg-gray-700">Copy</button>
+                                    <button type="button" wire:click="copyWeek" @disabled($repeatingEditLocked)
+                                        class="{{ $btnClass }} bg-gray-800 text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-40">Copy</button>
 
                                     <div class="hidden sm:block w-px h-8 bg-gray-200 shrink-0"></div>
 
                                     <button type="button"
                                         wire:click="clearCalendar"
                                         wire:confirm="Kosongkan semua group dan karyawan di periode kalender ini? Libur dan pengaturan hari tidak diubah."
-                                        class="{{ $btnClass }} border border-red-300 bg-white text-red-700 hover:bg-red-50">Clear</button>
+                                        @disabled($repeatingEditLocked)
+                                        class="{{ $btnClass }} border border-red-300 bg-white text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40">Clear</button>
                                 @endif
 
                                 <div class="flex flex-wrap items-end gap-2 ml-auto">
@@ -1863,6 +2007,15 @@ new #[Layout('layouts.app')] class extends Component
                                     </div>
                                 </div>
                             </div>
+                            @if ($repeatingEditLocked)
+                                <div class="mt-2 flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                    <span>Mode baca saja. Pola berulang hanya dapat diedit pada blok acuan {{ \Illuminate\Support\Carbon::parse($repeatingAnchorStart)->translatedFormat('d M') }} – {{ \Illuminate\Support\Carbon::parse($repeatingAnchorEnd)->translatedFormat('d M Y') }}.</span>
+                                    <button type="button" wire:click="goToRepeatingAnchor"
+                                        class="shrink-0 rounded-md bg-amber-700 px-3 py-1.5 font-semibold text-white hover:bg-amber-800">
+                                        Kembali ke Blok Acuan
+                                    </button>
+                                </div>
+                            @endif
                             @error('copySourceWeek') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                             @error('copyTargetWeek') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                         </div>
@@ -1878,7 +2031,10 @@ new #[Layout('layouts.app')] class extends Component
                                 x-transition:leave="transition ease-in duration-150"
                                 x-transition:leave-start="opacity-100 translate-x-0"
                                 x-transition:leave-end="opacity-0 -translate-x-2"
-                                class="shift-pool-panel shrink-0 flex flex-col min-h-0 self-stretch bg-gray-50"
+                                @class([
+                                    'shift-pool-panel shrink-0 flex flex-col min-h-0 self-stretch bg-gray-50 transition-opacity',
+                                    'pointer-events-none opacity-40' => $repeatingEditLocked,
+                                ])
                             >
                                 <div class="flex-1 min-h-0 overflow-y-auto space-y-3" style="padding: 0.5rem;">
                                     <div class="space-y-3 rounded-lg border border-gray-200 bg-white" style="padding: 0.5rem;">
@@ -1981,7 +2137,16 @@ new #[Layout('layouts.app')] class extends Component
                                                 'workMinutes' => $cell['work_duration_minutes'],
                                                 'breakMinutes' => $cell['break_duration_minutes'],
                                             ];
-                                            $cellEditable = $calendarEditMode && ($calendarViewMode !== 'month' || ! empty($cell['in_month']));
+                                            $cellInRepeatingAnchor = ! $repeatingPatternActive
+                                                || (
+                                                    $repeatingAnchorStart !== null
+                                                    && $repeatingAnchorEnd !== null
+                                                    && $cell['date'] >= $repeatingAnchorStart
+                                                    && $cell['date'] <= $repeatingAnchorEnd
+                                                );
+                                            $cellEditable = $calendarEditMode
+                                                && ($calendarViewMode !== 'month' || ! empty($cell['in_month']))
+                                                && $cellInRepeatingAnchor;
                                         @endphp
                                         <div wire:key="cell-{{ $cell['date'] }}"
                                             style="padding: 0.5rem; gap: 0.5rem"
@@ -1990,6 +2155,7 @@ new #[Layout('layouts.app')] class extends Component
                                                 $cell['is_today'] ? 'border-blue-500 border-2' : 'border-gray-200',
                                                 $cell['is_holiday'] ? 'bg-red-100' : 'bg-white',
                                                 ($calendarViewMode === 'month' && empty($cell['in_month'])) ? 'shift-cell-outside-month' : '',
+                                                ($calendarEditMode && ! $cellInRepeatingAnchor) ? 'shift-cell-outside-anchor' : '',
                                             ])>
                                             <div class="relative z-10 flex shrink-0 items-stretch min-w-0" style="gap: 0.5rem">
                                                 @if ($cellEditable)
@@ -2371,6 +2537,7 @@ new #[Layout('layouts.app')] class extends Component
                             wire:click="loadTemplate"
                             wire:loading.attr="disabled"
                             wire:target="loadTemplate"
+                            @disabled($repeatingEditLocked)
                             class="shrink-0 inline-flex items-center rounded-md bg-gray-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50">
                             <span wire:loading.remove wire:target="loadTemplate">Load & Aktifkan</span>
                             <span wire:loading wire:target="loadTemplate">...</span>
@@ -2417,6 +2584,7 @@ new #[Layout('layouts.app')] class extends Component
                             wire:click="updateSelectedTemplate"
                             wire:loading.attr="disabled"
                             wire:target="updateSelectedTemplate"
+                            @disabled($repeatingEditLocked)
                             class="inline-flex items-center rounded-md bg-gray-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50">
                             <span wire:loading.remove wire:target="updateSelectedTemplate">Simpan Perubahan</span>
                             <span wire:loading wire:target="updateSelectedTemplate">...</span>
@@ -2473,6 +2641,7 @@ new #[Layout('layouts.app')] class extends Component
                             wire:click="saveTemplate"
                             wire:loading.attr="disabled"
                             wire:target="saveTemplate"
+                            @disabled($repeatingEditLocked)
                             class="inline-flex items-center rounded-md bg-gray-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-50">
                             <span wire:loading.remove wire:target="saveTemplate">Simpan</span>
                             <span wire:loading wire:target="saveTemplate">...</span>

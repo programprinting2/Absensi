@@ -42,7 +42,7 @@ final class ResolvedShiftDay
             self::KIND_LIBUR_REQUEST => 'Libur request',
             self::KIND_LIBUR_KARYAWAN => 'Libur Rutin',
             self::KIND_LIBUR_HARI, self::KIND_LIBUR_EVENT => 'Libur',
-            self::KIND_UNSCHEDULED => 'Tidak dijadwalkan',
+            self::KIND_UNSCHEDULED => 'Jadwal belum diatur',
             default => $this->schedule?->name ?? 'Kerja',
         };
     }

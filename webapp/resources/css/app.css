@@ -51,6 +51,17 @@
     background-color: #fee2e2 !important;
 }
 
+.shift-cell-outside-anchor {
+    pointer-events: none;
+    opacity: 0.38;
+    background-color: #f9fafb !important;
+    filter: grayscale(0.35);
+}
+
+.shift-cell-outside-anchor .bg-red-100 {
+    background-color: #fee2e2 !important;
+}
+
 :root {
     --livewire-progress-bar-color: #f7340d;
 }

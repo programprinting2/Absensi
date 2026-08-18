@@ -33,6 +33,9 @@ class ShiftScheduleTemplate extends Model
 
     public static function defaultTemplate(): ?self
     {
-        return once(fn () => static::query()->where('is_default', true)->first());
+        return once(fn () => static::query()
+            ->where('is_default', true)
+            ->where('is_active', true)
+            ->first());
     }
 }

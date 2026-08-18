@@ -16,6 +16,7 @@
                 'Off' => 'bg-red-100 text-red-700',
                 'Tidak Masuk' => 'bg-red-100 text-red-700',
                 'Tidak dijadwalkan' => 'bg-gray-100 text-gray-500',
+                'Jadwal belum diatur' => 'bg-gray-100 text-gray-500',
                 'Tidak absen pulang' => 'bg-amber-100 text-amber-900',
                 'Tidak absen kembali' => 'bg-amber-100 text-amber-900',
                 default => 'bg-gray-100 text-gray-600',

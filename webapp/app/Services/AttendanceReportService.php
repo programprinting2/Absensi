@@ -287,7 +287,7 @@ class AttendanceReportService
                     \App\Support\ResolvedShiftDay::KIND_UNSCHEDULED,
                 ], true)) {
                     $row['status'] = match ($resolved->kind) {
-                        \App\Support\ResolvedShiftDay::KIND_UNSCHEDULED => 'Tidak dijadwalkan',
+                        \App\Support\ResolvedShiftDay::KIND_UNSCHEDULED => 'Jadwal belum diatur',
                         \App\Support\ResolvedShiftDay::KIND_LIBUR_KARYAWAN => 'Libur Rutin',
                         default => 'Libur',
                     };

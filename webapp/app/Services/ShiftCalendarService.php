@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\SyncRepeatingShiftPatternCellJob;
 use App\Models\Employee;
 use App\Models\ShiftCalendarEntry;
 use App\Models\ShiftDaySetting;
@@ -21,6 +22,8 @@ use Illuminate\Support\Facades\DB;
 class ShiftCalendarService
 {
     private bool $suppressAudit = false;
+
+    private bool $suppressRepeatingSync = false;
 
     private const REPEATING_MONTHS_AHEAD = 12;
 
@@ -212,6 +215,33 @@ class ShiftCalendarService
         $this->syncRepeatingPatternIfAnchorDate($workDate);
     }
 
+    public function moveGroupOnCalendar(
+        string $groupId,
+        string $fromDate,
+        string $fromScheduleId,
+        string $toDate,
+        string $toScheduleId,
+    ): void {
+        $previousSuppressRepeatingSync = $this->suppressRepeatingSync;
+        $this->suppressRepeatingSync = true;
+
+        try {
+            DB::transaction(function () use ($groupId, $fromDate, $fromScheduleId, $toDate, $toScheduleId) {
+                $this->placeGroupOnDate($groupId, $toScheduleId, $toDate);
+                if ($fromDate !== $toDate) {
+                    $this->removeGroupFromDate($groupId, $fromDate, $fromScheduleId);
+                }
+            });
+        } finally {
+            $this->suppressRepeatingSync = $previousSuppressRepeatingSync;
+        }
+
+        $this->syncRepeatingPatternIfAnchorDate($toDate);
+        if ($fromDate !== $toDate) {
+            $this->syncRepeatingPatternIfAnchorDate($fromDate);
+        }
+    }
+
     public function placeEmployeeOnDate(string $employeeId, string $scheduleId, string $workDate): ShiftCalendarEntry
     {
         $existing = ShiftCalendarEntry::query()
@@ -276,6 +306,33 @@ class ShiftCalendarService
         $this->syncRepeatingPatternIfAnchorDate($workDate);
     }
 
+    public function moveEmployeeOnCalendar(
+        string $employeeId,
+        string $fromDate,
+        string $fromScheduleId,
+        string $toDate,
+        string $toScheduleId,
+    ): void {
+        $previousSuppressRepeatingSync = $this->suppressRepeatingSync;
+        $this->suppressRepeatingSync = true;
+
+        try {
+            DB::transaction(function () use ($employeeId, $fromDate, $fromScheduleId, $toDate, $toScheduleId) {
+                $this->placeEmployeeOnDate($employeeId, $toScheduleId, $toDate);
+                if ($fromDate !== $toDate) {
+                    $this->removeEmployeeFromDate($employeeId, $fromDate, $fromScheduleId);
+                }
+            });
+        } finally {
+            $this->suppressRepeatingSync = $previousSuppressRepeatingSync;
+        }
+
+        $this->syncRepeatingPatternIfAnchorDate($toDate);
+        if ($fromDate !== $toDate) {
+            $this->syncRepeatingPatternIfAnchorDate($fromDate);
+        }
+    }
+
     public function removeEntry(string $entryId): void
     {
         $entry = ShiftCalendarEntry::query()->whereKey($entryId)->first();
@@ -303,6 +360,8 @@ class ShiftCalendarService
             'shift.holiday.set',
             ['work_date' => $workDate, 'kind' => $kind, 'on' => $on],
         );
+
+        $this->syncRepeatingPatternIfAnchorDate($workDate);
     }
 
     /**
@@ -339,6 +398,8 @@ class ShiftCalendarService
                 'break_minutes' => $breakMinutes,
             ],
         );
+
+        $this->syncRepeatingPatternIfAnchorDate($workDate);
     }
 
     public function toggleEmployeeLibur(string $employeeId, string $workDate, string $source = 'pattern'): bool
@@ -898,9 +959,13 @@ class ShiftCalendarService
         $payload = $template->payload ?? [];
         $weeks = $payload['weeks'] ?? [];
 
-        DB::transaction(function () use ($block, $weeks, $preserveEvents) {
-            $this->suppressAudit = true;
-            try {
+        $previousSuppressAudit = $this->suppressAudit;
+        $previousSuppressRepeatingSync = $this->suppressRepeatingSync;
+        $this->suppressAudit = true;
+        $this->suppressRepeatingSync = true;
+
+        try {
+            DB::transaction(function () use ($block, $weeks, $preserveEvents) {
                 foreach ($block['weeks'] as $wi => $weekDates) {
                     $weekPayload = $weeks[$wi] ?? [];
                     foreach ($weekDates as $di => $date) {
@@ -912,10 +977,11 @@ class ShiftCalendarService
                         $this->applyPatternCellToDate($cell, $date, $preserveEvents);
                     }
                 }
-            } finally {
-                $this->suppressAudit = false;
-            }
-        });
+            });
+        } finally {
+            $this->suppressAudit = $previousSuppressAudit;
+            $this->suppressRepeatingSync = $previousSuppressRepeatingSync;
+        }
 
         $label = $viewMode === 'month'
             ? sprintf('bulan %02d/%d', $viewMonth, $viewYear)
@@ -971,6 +1037,14 @@ class ShiftCalendarService
         $payload['anchor_start'] = $blockStart;
 
         DB::transaction(function () use ($template, $payload, $blockStart, $monthsAhead) {
+            ShiftScheduleTemplate::query()
+                ->whereKeyNot($template->getKey())
+                ->where('is_default', true)
+                ->update([
+                    'is_default' => false,
+                    'updated_at' => now(),
+                ]);
+
             $template->update([
                 'payload' => $payload,
                 'is_default' => true,
@@ -996,7 +1070,14 @@ class ShiftCalendarService
         string $workDate,
         int $monthsAhead = self::REPEATING_MONTHS_AHEAD,
     ): void {
-        $templates = ShiftScheduleTemplate::query()->where('is_default', true)->get();
+        if ($this->suppressRepeatingSync) {
+            return;
+        }
+
+        $templates = ShiftScheduleTemplate::query()
+            ->where('is_default', true)
+            ->where('is_active', true)
+            ->get();
 
         foreach ($templates as $template) {
             $anchorStart = $template->payload['anchor_start'] ?? null;
@@ -1004,24 +1085,155 @@ class ShiftCalendarService
                 continue;
             }
 
-            $payload = $this->buildTemplatePayloadFromBlock($anchorStart);
-            $payload['anchor_start'] = $anchorStart;
+            $payload = $this->refreshTemplatePatternCell($template, $workDate, $anchorStart);
 
-            DB::transaction(function () use ($template, $payload, $monthsAhead, $anchorStart) {
+            DB::transaction(function () use ($template, $payload) {
                 $template->update([
                     'payload' => $payload,
                     'updated_at' => now(),
                 ]);
-
-                $this->rematerializeRepeatingFuture($template->fresh(), $monthsAhead);
             });
 
+            SyncRepeatingShiftPatternCellJob::dispatch(
+                (string) $template->getKey(),
+                $workDate,
+                $monthsAhead,
+            )->afterCommit();
+
             $this->audit(
-                'Menyinkronkan pola berulang "'.$template->name.'" setelah perubahan di blok acuan',
-                'shift.template.repeating.sync',
+                'Menjadwalkan sinkronisasi pola berulang "'.$template->name.'" setelah perubahan di blok acuan',
+                'shift.template.repeating.sync_queued',
                 ['template_id' => $template->id, 'anchor_start' => $anchorStart],
             );
         }
+    }
+
+    /**
+     * Perbarui data penempatan/libur pada satu tanggal acuan tanpa membangun
+     * ulang payload seluruh blok 4 minggu.
+     */
+    private function refreshTemplatePatternCell(
+        ShiftScheduleTemplate $template,
+        string $workDate,
+        string $anchorStart,
+    ): array {
+        $payload = $template->payload ?? [];
+        $anchor = Carbon::parse($anchorStart, AppTimezone::display())->startOfDay();
+        $date = Carbon::parse($workDate, AppTimezone::display())->startOfDay();
+        $offset = (int) $anchor->diffInDays($date);
+        $weekIndex = intdiv($offset, 7);
+        $dayIndex = $offset % 7;
+
+        if (! isset($payload['weeks'][$weekIndex][$dayIndex])) {
+            $payload = $this->buildTemplatePayloadFromBlock($anchorStart);
+        }
+
+        $entries = ShiftCalendarEntry::query()
+            ->whereDate('work_date', $workDate)
+            ->orderBy('sort_order')
+            ->get()
+            ->map(function (ShiftCalendarEntry $entry): array {
+                $row = ['work_schedule_id' => $entry->work_schedule_id];
+                if ($entry->employee_id) {
+                    $row['employee_id'] = $entry->employee_id;
+                } else {
+                    $row['group_id'] = $entry->group_id;
+                }
+
+                return $row;
+            })
+            ->values()
+            ->all();
+
+        $employeeLibur = ShiftEmployeeLibur::query()
+            ->whereDate('work_date', $workDate)
+            ->where('source', 'pattern')
+            ->pluck('employee_id')
+            ->values()
+            ->all();
+        $daySetting = ShiftDaySetting::query()
+            ->whereDate('work_date', $workDate)
+            ->first();
+
+        $payload['weeks'][$weekIndex][$dayIndex]['entries'] = $entries;
+        $payload['weeks'][$weekIndex][$dayIndex]['employee_libur'] = $employeeLibur;
+        $payload['weeks'][$weekIndex][$dayIndex]['is_holiday'] = (bool) ($daySetting?->is_company_holiday);
+        $payload['weeks'][$weekIndex][$dayIndex]['holiday_kind'] = $daySetting?->holiday_kind;
+        $payload['weeks'][$weekIndex][$dayIndex]['work_duration_minutes'] = $daySetting?->work_duration_minutes;
+        $payload['weeks'][$weekIndex][$dayIndex]['break_duration_minutes'] = $daySetting?->break_duration_minutes;
+        $payload['anchor_start'] = $anchorStart;
+
+        return $payload;
+    }
+
+    /**
+     * Terapkan ulang hanya satu sel pola 4-mingguan yang berubah.
+     *
+     * Satu tanggal acuan berulang setiap 28 hari, sehingga perubahan drag/drop
+     * tidak perlu membangun ulang seluruh kalender satu tahun.
+     */
+    public function materializeRepeatingPatternCell(
+        string $templateId,
+        string $workDate,
+        int $monthsAhead = self::REPEATING_MONTHS_AHEAD,
+    ): void {
+        $template = ShiftScheduleTemplate::query()
+            ->whereKey($templateId)
+            ->where('is_default', true)
+            ->where('is_active', true)
+            ->first();
+
+        if (! $template) {
+            return;
+        }
+
+        $anchorStart = $template->payload['anchor_start'] ?? null;
+        $weeks = $template->payload['weeks'] ?? [];
+        if (! is_string($anchorStart) || $anchorStart === '' || $weeks === []) {
+            return;
+        }
+
+        if (! $this->dateInBlock($workDate, $anchorStart)) {
+            return;
+        }
+
+        $cell = $this->patternCellForDate($workDate, $anchorStart, $weeks);
+        if (! $cell) {
+            return;
+        }
+
+        $tz = AppTimezone::display();
+        $firstOccurrence = Carbon::parse($workDate, $tz)->addDays(28)->startOfDay();
+        $block = $this->fourWeekBlock($anchorStart);
+        $through = Carbon::parse($block['end'], $tz)->addDay()->addMonths($monthsAhead);
+
+        $previousSuppressAudit = $this->suppressAudit;
+        $previousSuppressRepeatingSync = $this->suppressRepeatingSync;
+        $this->suppressAudit = true;
+        $this->suppressRepeatingSync = true;
+
+        try {
+            DB::transaction(function () use ($cell, $firstOccurrence, $through) {
+                $cursor = $firstOccurrence->copy();
+                while ($cursor->lte($through)) {
+                    $this->applyPatternCellToDate($cell, $cursor->toDateString(), true);
+                    $cursor->addDays(28);
+                }
+            });
+        } finally {
+            $this->suppressAudit = $previousSuppressAudit;
+            $this->suppressRepeatingSync = $previousSuppressRepeatingSync;
+        }
+
+        $this->audit(
+            'Menyelesaikan sinkronisasi pola berulang "'.$template->name.'" untuk tanggal acuan '.$workDate,
+            'shift.template.repeating.sync_completed',
+            [
+                'template_id' => $template->id,
+                'anchor_start' => $anchorStart,
+                'work_date' => $workDate,
+            ],
+        );
     }
 
     private function dateInBlock(string $date, string $blockStart): bool
@@ -1045,7 +1257,10 @@ class ShiftCalendarService
         $from = Carbon::parse($block['end'], AppTimezone::display())->addDay()->startOfDay();
         $to = $from->copy()->addMonths($monthsAhead);
 
+        $previousSuppressAudit = $this->suppressAudit;
+        $previousSuppressRepeatingSync = $this->suppressRepeatingSync;
         $this->suppressAudit = true;
+        $this->suppressRepeatingSync = true;
         try {
             $cursor = $from->copy();
             while ($cursor->lte($to)) {
@@ -1057,7 +1272,8 @@ class ShiftCalendarService
                 $cursor->addDay();
             }
         } finally {
-            $this->suppressAudit = false;
+            $this->suppressAudit = $previousSuppressAudit;
+            $this->suppressRepeatingSync = $previousSuppressRepeatingSync;
         }
     }
 

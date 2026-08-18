@@ -511,9 +511,9 @@ new #[Layout('layouts.app')] class extends Component
                                                                                     {{ \Illuminate\Support\Str::of((string) $mine['clock_out'])->substr(0, 5) }}
                                                                                 </p>
                                                                             </div>
-                                                                        @elseif ($mine)
+                                                                        @else
                                                                             <div class="flex-1 flex flex-col min-w-0 items-center justify-center text-center px-1" style="gap: 0.25rem">
-                                                                                <p class="font-medium text-slate-600">{{ $mine['label'] }}</p>
+                                                                                <p class="font-medium text-slate-500">{{ $mine['label'] ?? 'Jadwal belum diatur' }}</p>
                                                                             </div>
                                                                         @endif
                                                                     @else
