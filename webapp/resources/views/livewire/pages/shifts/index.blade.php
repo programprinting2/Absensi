@@ -556,8 +556,6 @@ new #[Layout('layouts.app')] class extends Component
             WorkSchedule::findOrFail($this->editingScheduleId)->update($payload);
             Toast::success('Shift diperbarui.', $this);
         } else {
-            $hasDefault = WorkSchedule::query()->where('is_active', true)->exists();
-            $payload['is_active'] = ! $hasDefault;
             WorkSchedule::create($payload);
             Toast::success('Shift dibuat.', $this);
         }
@@ -565,25 +563,10 @@ new #[Layout('layouts.app')] class extends Component
         $this->closeRuleModal();
     }
 
-    public function setDefaultRule(string $id): void
-    {
-        DB::transaction(function () use ($id) {
-            WorkSchedule::query()->where('is_active', true)->where('id', '!=', $id)->update(['is_active' => false]);
-            WorkSchedule::query()->where('id', $id)->update(['is_active' => true, 'is_enabled' => true]);
-        });
-        Toast::success('Jadwal default perusahaan diperbarui.', $this);
-    }
-
     public function toggleShiftEnabled(string $id): void
     {
         $schedule = WorkSchedule::findOrFail($id);
         $newEnabled = ! $schedule->is_enabled;
-
-        if ($schedule->is_active && ! $newEnabled) {
-            Toast::error('Shift default tidak bisa dinonaktifkan. Jadikan shift lain sebagai default dulu.', $this);
-
-            return;
-        }
 
         $schedule->update(['is_enabled' => $newEnabled]);
         Toast::success(
@@ -597,11 +580,6 @@ new #[Layout('layouts.app')] class extends Component
     public function deleteRule(string $id): void
     {
         $schedule = WorkSchedule::findOrFail($id);
-        if ($schedule->is_active) {
-            Toast::error('Tidak bisa hapus jadwal default.', $this);
-
-            return;
-        }
         if (WorkSchedule::query()->count() <= 1) {
             Toast::error('Minimal harus ada satu shift.', $this);
 
@@ -878,16 +856,14 @@ new #[Layout('layouts.app')] class extends Component
             $this->dayMenuDate = $forDate;
         }
         $dates = $this->selectedDates !== [] ? $this->selectedDates : [$this->dayMenuDate];
-        $all = $this->periodDatesInView($calendar);
 
         foreach ($dates as $date) {
             if ($date === '' || ! $this->isCalendarDateEditable($date)) {
                 continue;
             }
-            $weekday = (int) Carbon::parse($date, AppTimezone::display())->dayOfWeekIso;
-            $calendar->setRoutineHolidayForWeekday($all, $weekday, true);
+            $calendar->setCompanyHoliday($date, ShiftDaySetting::HOLIDAY_ROUTINE, true);
         }
-        Toast::success('Libur rutin diterapkan ke pola (weekday).', $this);
+        Toast::success('Libur rutin diset.', $this);
         $this->closeDayMenu();
         $this->clearSelection();
     }
@@ -934,8 +910,13 @@ new #[Layout('layouts.app')] class extends Component
         $this->clearSelection();
     }
 
-    public function saveDayDurations(ShiftCalendarService $calendar, mixed $workMinutes = null, mixed $breakMinutes = null, ?string $forDate = null): void
-    {
+    public function saveDayDurations(
+        ShiftCalendarService $calendar,
+        mixed $workMinutes = null,
+        mixed $breakMinutes = null,
+        ?string $forDate = null,
+        bool $applyToWeekday = false,
+    ): void {
         if (! $this->ensureCalendarEditMode()) {
             return;
         }
@@ -943,25 +924,55 @@ new #[Layout('layouts.app')] class extends Component
         if (is_string($forDate) && $forDate !== '') {
             $this->dayMenuDate = $forDate;
         }
-        if ($workMinutes !== null && $workMinutes !== '') {
-            $this->dayMenuWorkMinutes = (int) $workMinutes;
-        }
-        if ($breakMinutes !== null && $breakMinutes !== '') {
-            $this->dayMenuBreakMinutes = (int) $breakMinutes;
-        }
+
+        $workValue = $this->normalizeDurationInput($workMinutes);
+        $breakValue = $this->normalizeDurationInput($breakMinutes);
+        $this->dayMenuWorkMinutes = $workValue;
+        $this->dayMenuBreakMinutes = $breakValue;
+
         $dates = $this->selectedDates !== [] ? $this->selectedDates : [$this->dayMenuDate];
+        $anchorDate = $this->dayMenuDate !== '' ? $this->dayMenuDate : ($dates[0] ?? '');
+        $weekday = $anchorDate !== ''
+            ? (int) Carbon::parse($anchorDate, AppTimezone::display())->dayOfWeekIso
+            : 0;
+        $datesInView = array_values(array_filter(
+            $this->periodDatesInView($calendar),
+            fn (string $d) => $this->isCalendarDateEditable($d),
+        ));
+
+        if ($applyToWeekday && $weekday > 0) {
+            $calendar->setWorkDurationForWeekday($datesInView, $weekday, $workValue);
+            $calendar->setBreakDurationForWeekday($datesInView, $weekday, $breakValue);
+        }
+
         foreach ($dates as $date) {
             if ($date === '' || ! $this->isCalendarDateEditable($date)) {
                 continue;
             }
-            $calendar->setDayDurations(
-                $date,
-                $this->dayMenuWorkMinutes !== null && $this->dayMenuWorkMinutes !== '' ? (int) $this->dayMenuWorkMinutes : null,
-                $this->dayMenuBreakMinutes !== null && $this->dayMenuBreakMinutes !== '' ? (int) $this->dayMenuBreakMinutes : null,
-            );
+
+            $isAnchorWeekday = $weekday > 0
+                && (int) Carbon::parse($date, AppTimezone::display())->dayOfWeekIso === $weekday;
+
+            if (! $applyToWeekday || ! $isAnchorWeekday) {
+                $calendar->setDayWorkDuration($date, $workValue);
+                $calendar->setDayBreakDuration($date, $breakValue);
+            }
         }
-        Toast::success('Jam kerja / istirahat hari disimpan.', $this);
+
+        $message = $workValue === null && $breakValue === null
+            ? 'Override jam kerja / istirahat dikembalikan ke default.'
+            : 'Jam kerja / istirahat hari disimpan.';
+
+        Toast::success($message, $this);
         $this->closeDayMenu();
+    }
+
+    public function resetDayDurations(
+        ShiftCalendarService $calendar,
+        ?string $forDate = null,
+        bool $applyToWeekday = false,
+    ): void {
+        $this->saveDayDurations($calendar, null, null, $forDate, $applyToWeekday);
     }
 
     public ?string $memberPanelEmployeeId = null;
@@ -1282,6 +1293,21 @@ new #[Layout('layouts.app')] class extends Component
         } catch (\RuntimeException $e) {
             Toast::error($e->getMessage(), $this);
         }
+    }
+
+    private function normalizeDurationInput(mixed $value): ?int
+    {
+        if ($value === null || $value === '' || $value === false) {
+            return null;
+        }
+
+        if (is_string($value) && trim($value) === '') {
+            return null;
+        }
+
+        $minutes = (int) $value;
+
+        return $minutes > 0 ? $minutes : null;
     }
 
     private function calcClockOut(string $clockIn, int $workMinutes, int $breakMinutes): string
@@ -1715,6 +1741,10 @@ new #[Layout('layouts.app')] class extends Component
         holidayKind: 'routine',
         workMinutes: '',
         breakMinutes: '',
+        hasDurationOverride: false,
+        applyScope: 'date',
+        dateApplyLabel: '',
+        weekdayApplyLabel: '',
     },
     openDayMenuQuick(payload) {
         this.dayMenu = {
@@ -1724,6 +1754,10 @@ new #[Layout('layouts.app')] class extends Component
             holidayKind: payload.holidayKind || 'routine',
             workMinutes: payload.workMinutes ?? '',
             breakMinutes: payload.breakMinutes ?? '',
+            hasDurationOverride: !!payload.hasDurationOverride,
+            applyScope: 'date',
+            dateApplyLabel: payload.dateApplyLabel || payload.label,
+            weekdayApplyLabel: payload.weekdayApplyLabel || '',
         };
         this.showDayMenu = true;
     },
@@ -1792,7 +1826,6 @@ new #[Layout('layouts.app')] class extends Component
                                     <th class="px-4 py-2.5">Jam kerja default</th>
                                     <th class="px-4 py-2.5">Telat setelah</th>
                                     <th class="px-4 py-2.5">Aktif</th>
-                                    <th class="px-4 py-2.5">Default</th>
                                     <th class="px-4 py-2.5 text-right">Aksi</th>
                                 </tr>
                             </thead>
@@ -1828,23 +1861,13 @@ new #[Layout('layouts.app')] class extends Component
                                                 ])></span>
                                             </button>
                                         </td>
-                                        <td class="px-4 py-3">
-                                            @if ($row->is_active)
-                                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Default</span>
-                                            @else
-                                                <button type="button" wire:click="setDefaultRule('{{ $row->id }}')"
-                                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600 hover:bg-indigo-50 hover:text-indigo-700">
-                                                    Jadikan default
-                                                </button>
-                                            @endif
-                                        </td>
                                         <td class="px-4 py-3 text-right whitespace-nowrap">
                                             <button type="button" wire:click="openEditRule('{{ $row->id }}')" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">Edit</button>
                                             <button type="button" wire:click="deleteRule('{{ $row->id }}')" wire:confirm="Hapus shift {{ $row->name }}?" class="ml-3 text-red-600 hover:text-red-800 text-sm font-medium">Hapus</button>
                                         </td>
                                     </tr>
                                 @empty
-                                    <tr><td colspan="9" class="px-4 py-8 text-center text-gray-500">Belum ada shift. Buat shift pertama.</td></tr>
+                                    <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">Belum ada shift. Buat shift pertama.</td></tr>
                                 @endforelse
                             </tbody>
                         </table>
@@ -2129,13 +2152,31 @@ new #[Layout('layouts.app')] class extends Component
                                                 0,
                                                 3
                                             ));
+                                            $cellCarbon = \Illuminate\Support\Carbon::parse($cell['date'])->locale('id');
+                                            $weekdayName = ucfirst($cellCarbon->translatedFormat('l'));
+                                            $dateApplyLabel = $weekdayName.' baris Minggu '.($wi + 1).' (Kolom ini)';
+                                            $weekdayApplyLabel = 'Semua Hari '.$weekdayName;
+                                            $durationOverrideLines = [];
+                                            if (filled($cell['work_duration_minutes'])) {
+                                                $workMins = (int) $cell['work_duration_minutes'];
+                                                $durationOverrideLines[] = $workMins % 60 === 0
+                                                    ? 'Jam kerja: '.($workMins / 60).' jam'
+                                                    : 'Jam kerja: '.$workMins.' menit';
+                                            }
+                                            if (filled($cell['break_duration_minutes'])) {
+                                                $durationOverrideLines[] = 'Istirahat: '.(int) $cell['break_duration_minutes'].' menit';
+                                            }
                                             $dayMenuPayload = [
                                                 'date' => $cell['date'],
-                                                'label' => \Illuminate\Support\Carbon::parse($cell['date'])->translatedFormat('d M Y'),
+                                                'label' => $cellCarbon->translatedFormat('d M Y'),
+                                                'dateApplyLabel' => $dateApplyLabel,
+                                                'weekdayApplyLabel' => $weekdayApplyLabel,
                                                 'isHoliday' => (bool) $cell['is_holiday'],
                                                 'holidayKind' => $cell['holiday_kind'] ?? 'routine',
                                                 'workMinutes' => $cell['work_duration_minutes'],
                                                 'breakMinutes' => $cell['break_duration_minutes'],
+                                                'hasDurationOverride' => filled($cell['work_duration_minutes'])
+                                                    || filled($cell['break_duration_minutes']),
                                             ];
                                             $cellInRepeatingAnchor = ! $repeatingPatternActive
                                                 || (
@@ -2147,6 +2188,8 @@ new #[Layout('layouts.app')] class extends Component
                                             $cellEditable = $calendarEditMode
                                                 && ($calendarViewMode !== 'month' || ! empty($cell['in_month']))
                                                 && $cellInRepeatingAnchor;
+                                            $hasDurationOverride = filled($cell['work_duration_minutes'])
+                                                || filled($cell['break_duration_minutes']);
                                         @endphp
                                         <div wire:key="cell-{{ $cell['date'] }}"
                                             style="padding: 0.5rem; gap: 0.5rem"
@@ -2201,7 +2244,58 @@ new #[Layout('layouts.app')] class extends Component
                                                 @else
                                                     <span class="min-w-0 flex-1"></span>
                                                 @endif
-                                                @if ($cellEditable)
+                                                @if ($hasDurationOverride)
+                                                    <span
+                                                        x-data="{
+                                                            showDurationTip: false,
+                                                            durationTipStyle: '',
+                                                            showTip() {
+                                                                const r = this.$el.getBoundingClientRect();
+                                                                const left = Math.max(8, Math.min(r.left, window.innerWidth - 288));
+                                                                this.durationTipStyle = `left:${left}px;top:${r.top - 4}px;transform:translateY(-100%)`;
+                                                                this.showDurationTip = true;
+                                                            },
+                                                        }"
+                                                        class="inline-flex shrink-0 self-stretch"
+                                                        @mouseenter="showTip()"
+                                                        @mouseleave="showDurationTip = false"
+                                                    >
+                                                        @if ($cellEditable)
+                                                            <button type="button"
+                                                                data-open-day-menu
+                                                                data-day-menu='@json($dayMenuPayload)'
+                                                                title="Pengaturan hari"
+                                                                @class([
+                                                                    'inline-flex shrink-0 items-center justify-end rounded self-stretch pr-0.5 text-red-600 hover:text-red-800 hover:bg-red-50',
+                                                                    $cell['is_holiday'] ? 'hover:bg-red-200' : '',
+                                                                ])
+                                                                style="padding-top: 0.25rem; padding-bottom: 0.25rem;">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                </svg>
+                                                            </button>
+                                                        @else
+                                                            <span class="inline-flex shrink-0 items-center justify-end rounded self-stretch pr-0.5 text-red-600 cursor-default"
+                                                                style="padding-top: 0.25rem; padding-bottom: 0.25rem;">
+                                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                </svg>
+                                                            </span>
+                                                        @endif
+                                                        <template x-teleport="body">
+                                                            <span
+                                                                x-show="showDurationTip"
+                                                                role="tooltip"
+                                                                :style="durationTipStyle"
+                                                                class="pointer-events-none fixed z-[9999] max-w-[280px] rounded-md bg-gray-900 px-2.5 py-1.5 text-xs font-medium leading-snug text-white shadow-lg whitespace-normal"
+                                                            >
+                                                                @foreach ($durationOverrideLines as $line)
+                                                                    <span class="block">{{ $line }}</span>
+                                                                @endforeach
+                                                            </span>
+                                                        </template>
+                                                    </span>
+                                                @elseif ($cellEditable)
                                                 <button type="button"
                                                     data-open-day-menu
                                                     data-day-menu='@json($dayMenuPayload)'
@@ -2724,23 +2818,40 @@ new #[Layout('layouts.app')] class extends Component
                                 </button>
                             </div>
 
-                            <div class="grid grid-cols-2 gap-4 mt-5">
+                            <div class="space-y-4 mt-5">
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700">Jam kerja (menit)</label>
-                                    <input type="number" x-model="dayMenu.workMinutes" placeholder="default" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm placeholder:text-gray-400">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Jam kerja (menit)</label>
+                                    <input type="number" x-model="dayMenu.workMinutes" placeholder="default" class="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm placeholder:text-gray-400">
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700">Istirahat (menit)</label>
-                                    <input type="number" x-model="dayMenu.breakMinutes" placeholder="default" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm placeholder:text-gray-400">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Istirahat (menit)</label>
+                                    <input type="number" x-model="dayMenu.breakMinutes" placeholder="default" class="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm placeholder:text-gray-400">
                                 </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Terapkan ke :</label>
+                                    <select x-model="dayMenu.applyScope" class="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+                                        <option value="date" x-text="dayMenu.dateApplyLabel"></option>
+                                        <option value="weekday" x-text="dayMenu.weekdayApplyLabel"></option>
+                                    </select>
+                                </div>
+                                <p class="text-xs text-gray-500">Kosongkan field lalu simpan untuk mengembalikan ke default shift.</p>
                             </div>
                         </div>
                     </template>
                 </div>
 
-                <div class="flex items-center justify-end gap-3 px-6 py-3.5 border-t border-gray-200 bg-gray-50 shrink-0">
+                <div class="flex flex-wrap items-center justify-end gap-3 px-6 py-3.5 border-t border-gray-200 bg-gray-50 shrink-0">
                     <button type="button" @click="closeDayMenuQuick()" class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md font-semibold text-xs text-gray-700 uppercase tracking-widest shadow-sm hover:bg-gray-50 transition">
                         Tutup
+                    </button>
+                    <button
+                        type="button"
+                        x-show="!dayMenu.isHoliday && dayMenu.hasDurationOverride"
+                        x-cloak
+                        @click="runDayMenuAction(() => $wire.resetDayDurations(dayMenu.date, dayMenu.applyScope === 'weekday'))"
+                        class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-md font-semibold text-xs text-gray-700 uppercase tracking-widest shadow-sm hover:bg-gray-50 transition"
+                    >
+                        Kembalikan default
                     </button>
                     <button
                         type="button"
@@ -2755,10 +2866,10 @@ new #[Layout('layouts.app')] class extends Component
                         type="button"
                         x-show="!dayMenu.isHoliday"
                         x-cloak
-                        @click="runDayMenuAction(() => $wire.saveDayDurations(dayMenu.workMinutes, dayMenu.breakMinutes, dayMenu.date))"
+                        @click="runDayMenuAction(() => $wire.saveDayDurations(dayMenu.workMinutes, dayMenu.breakMinutes, dayMenu.date, dayMenu.applyScope === 'weekday'))"
                         class="inline-flex items-center px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition"
                     >
-                        Simpan jam
+                        SIMPAN
                     </button>
                 </div>
             </div>

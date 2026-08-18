@@ -263,7 +263,7 @@ new #[Layout('layouts.app')] class extends Component
                 $this->fillDate,
                 $this->fillMode,
                 $this->fillMode === 'peer' ? $this->fillPeerId : null,
-                auth()->user()?->name,
+                auth()->user()?->systemLabel(),
             );
             $this->closeFillClockOut();
             Toast::success('Jam pulang berhasil diisi oleh HRD.', $this);
@@ -316,7 +316,7 @@ new #[Layout('layouts.app')] class extends Component
                 $this->fillBreakDate,
                 $this->fillBreakMode,
                 $this->fillBreakMode === 'peer' ? $this->fillBreakPeerId : null,
-                auth()->user()?->name,
+                auth()->user()?->systemLabel(),
             );
             $this->closeFillBreakEnd();
             Toast::success('Jam kembali berhasil diisi oleh HRD.', $this);

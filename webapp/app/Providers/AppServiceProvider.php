@@ -37,7 +37,7 @@ class AppServiceProvider extends ServiceProvider
 
         Event::listen(Login::class, function (Login $event): void {
             ActivityLogger::medium(
-                "Login berhasil: {$event->user->name} ({$event->user->email})",
+                "Login berhasil: {$event->user->systemLabel()} ({$event->user->email})",
                 'auth.login',
                 ['guard' => $event->guard],
                 user: $event->user,
@@ -46,7 +46,7 @@ class AppServiceProvider extends ServiceProvider
 
         Event::listen(Logout::class, function (Logout $event): void {
             ActivityLogger::normal(
-                'Logout: '.($event->user?->name ?? 'pengguna'),
+                'Logout: '.($event->user?->systemLabel() ?? 'pengguna'),
                 'auth.logout',
                 ['guard' => $event->guard],
                 user: $event->user,

@@ -9,33 +9,11 @@ namespace {
 
 const char *BREAK_SESSIONS_PATH = "/break_sessions.json";
 
-String formatDuration(int totalMinutes) {
-    if (totalMinutes <= 0) {
-        return "0 menit";
-    }
-
-    int hours = totalMinutes / 60;
-    int minutes = totalMinutes % 60;
-
-    if (hours == 0) {
-        return String(minutes) + " menit";
-    }
-    if (minutes == 0) {
-        return String(hours) + " jam";
-    }
-    return String(hours) + " jam " + String(minutes) + " menit";
-}
-
 String formatClockTime(time_t t) {
     struct tm *tmInfo = localtime(&t);
     char buf[6];
     snprintf(buf, sizeof(buf), "%02d:%02d", tmInfo->tm_hour, tmInfo->tm_min);
     return String(buf);
-}
-
-int minutesOfDay(time_t t) {
-    struct tm *tmInfo = localtime(&t);
-    return tmInfo->tm_hour * 60 + tmInfo->tm_min;
 }
 
 bool sameLocalDay(time_t a, time_t b) {
@@ -68,6 +46,15 @@ bool saveSessionsDoc(JsonDocument &doc) {
     file.close();
     return true;
 }
+
+AttendanceIndicator makeOk(AttendanceType type) {
+    AttendanceIndicator result;
+    result.level = IndicatorLevel::Ok;
+    result.barText = device_config::modeTexts(type).indicatorOk;
+    return result;
+}
+
+} // namespace
 
 void saveBreakStart(const String &employeeId, time_t startedAt) {
     JsonDocument doc;
@@ -111,68 +98,30 @@ void markBreakEnded(const String &employeeId) {
     saveSessionsDoc(doc);
 }
 
-AttendanceIndicator makeOk(AttendanceType type) {
-    AttendanceIndicator result;
-    result.level = IndicatorLevel::Ok;
-    result.barText = device_config::modeTexts(type).indicatorOk;
-    return result;
-}
-
-} // namespace
-
-AttendanceIndicator evaluate(const String &employeeId, AttendanceType type, time_t eventTime) {
+AttendanceIndicator evaluateOffline(AttendanceType type) {
     const device_config::ModeTexts &texts = device_config::modeTexts(type);
-    const device_config::WorkSchedule &sched = device_config::schedule();
     AttendanceIndicator result = makeOk(type);
 
-    switch (type) {
-        case AttendanceType::ClockIn: {
-            int nowMin = minutesOfDay(eventTime);
-            // Samakan dengan webapp: terlambat setelah late_after_time (fallback jam masuk).
-            if (sched.loaded && nowMin > sched.lateAfterMinutes) {
-                result.level = IndicatorLevel::Warning;
-                result.barText = texts.indicatorWarnPrefix + " " +
-                                 formatDuration(nowMin - sched.lateAfterMinutes);
-            }
-            break;
-        }
-
-        case AttendanceType::BreakStart: {
-            saveBreakStart(employeeId, eventTime);
-            time_t deadline = eventTime + (time_t)sched.breakDurationMinutes * 60;
-            result.level = IndicatorLevel::Info;
-            result.barText = texts.indicatorInfoPrefix + " " + formatClockTime(deadline);
-            break;
-        }
-
-        case AttendanceType::BreakEnd: {
-            time_t breakStart = 0;
-            if (loadBreakStart(employeeId, eventTime, breakStart)) {
-                int elapsed = (int)((eventTime - breakStart) / 60);
-                if (sched.loaded && elapsed > sched.breakDurationMinutes) {
-                    result.level = IndicatorLevel::Warning;
-                    result.barText = texts.indicatorWarnPrefix + " " +
-                                     formatDuration(elapsed - sched.breakDurationMinutes);
-                }
-                // Jangan hapus break_start — scan KEMBALI berulang masih pakai
-                // waktu ISTIRAHAT yang sama. Reset hanya lewat ISTIRAHAT baru.
-                markBreakEnded(employeeId);
-            }
-            break;
-        }
-
-        case AttendanceType::ClockOut: {
-            int nowMin = minutesOfDay(eventTime);
-            if (sched.loaded && nowMin < sched.clockOutMinutes) {
-                result.level = IndicatorLevel::Warning;
-                result.barText = texts.indicatorWarnPrefix + " " +
-                                 formatDuration(sched.clockOutMinutes - nowMin);
-            }
-            break;
-        }
+    if (type == AttendanceType::BreakStart) {
+        result.level = IndicatorLevel::Info;
+        result.barText = texts.indicatorInfoPrefix.length() > 0
+            ? texts.indicatorInfoPrefix
+            : texts.indicatorOk;
     }
 
     return result;
+}
+
+AttendanceIndicator evaluate(const String &employeeId, AttendanceType type, time_t eventTime) {
+    if (type == AttendanceType::BreakStart) {
+        saveBreakStart(employeeId, eventTime);
+    }
+
+    if (type == AttendanceType::BreakEnd) {
+        markBreakEnded(employeeId);
+    }
+
+    return evaluateOffline(type);
 }
 
 } // namespace attendance_rules

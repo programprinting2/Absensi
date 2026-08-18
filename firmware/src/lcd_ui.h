@@ -59,8 +59,11 @@ void showEnrollPrompt(const String &employeeName, int employeeCode, int step, in
 
 void showAttendanceResult(AttendanceType type, const String &employeeName,
                           const String &modeLabel, const String &timeText,
-                          const attendance_rules::AttendanceIndicator &indicator);
+                          const attendance_rules::AttendanceIndicator &indicator,
+                          const String &scheduleName = "");
 
 void showAttendanceFailed(const String &reason);
+
+void showAttendanceRejected(const String &title, const String &employeeName);
 
 } // namespace lcd_ui

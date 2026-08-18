@@ -9,6 +9,7 @@ use App\Models\DeviceCommand;
 use App\Models\Employee;
 use App\Models\FingerprintTemplate;
 use App\Models\WorkSchedule;
+use App\Services\AttendanceScheduleGuard;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -52,7 +53,12 @@ class DeviceRestController extends Controller
         $select = $request->query('select');
         if (is_string($select) && $select !== '*' && $select !== '') {
             $columns = array_map('trim', explode(',', $select));
-            $query->select($columns);
+            if ($table === 'employees') {
+                $columns = array_values(array_filter($columns, fn (string $c) => $c !== 'username'));
+            }
+            if ($columns !== []) {
+                $query->select($columns);
+            }
         }
 
         $order = $request->query('order');
@@ -63,7 +69,16 @@ class DeviceRestController extends Controller
         $rows = $query->get();
 
         if ($table === 'employees') {
+            $rows->load('portalUser');
             $rows->each->makeVisible(['pin_salt', 'pin_hash']);
+
+            return response()->json($rows->map(function (Employee $employee) {
+                $row = $employee->toArray();
+                unset($row['portal_user']);
+                $row['username'] = $employee->portalUser?->username ?? '';
+
+                return $row;
+            }));
         }
 
         return response()->json($rows);
@@ -74,6 +89,17 @@ class DeviceRestController extends Controller
         $data = $request->all();
 
         if ($table === 'attendance_logs') {
+            $eventTime = Carbon::parse($data['event_time'])->utc();
+            $guard = app(AttendanceScheduleGuard::class)->check($data['employee_id'], $eventTime);
+
+            if (! $guard['allowed']) {
+                return response()->json([
+                    'message' => 'attendance_not_allowed',
+                    'error' => $guard['reject_label'],
+                    'day_kind' => $guard['resolved']->kind,
+                ], 422);
+            }
+
             try {
                 $log = AttendanceLog::create([
                     'id' => (string) Str::uuid(),

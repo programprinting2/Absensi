@@ -18,7 +18,7 @@ class UserAccessController extends Controller
             ->all();
 
         $validator = validator($request->all(), [
-            'name' => ['required', 'string', 'max:255'],
+            'username' => ['required', 'string', 'min:3', 'max:64', 'alpha_dash', 'unique:users,username'],
             'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'string', 'confirmed', Password::defaults()],
             'role' => ['required', 'string', Rule::in($roleSlugs)],
@@ -36,7 +36,7 @@ class UserAccessController extends Controller
 
         $user = new User;
         $user->forceFill([
-            'name' => $data['name'],
+            'username' => $data['username'],
             'email' => $data['email'],
             'password' => $data['password'],
             'role' => $data['role'],
@@ -46,7 +46,7 @@ class UserAccessController extends Controller
 
         return redirect()
             ->route('settings.index', ['tab' => 'hak-akses'])
-            ->with('status', "User \"{$data['email']}\" berhasil dibuat.")
+            ->with('status', "User \"{$data['username']}\" berhasil dibuat.")
             ->with('settings_tab', 'hak-akses');
     }
 
@@ -55,7 +55,14 @@ class UserAccessController extends Controller
         $roleSlugs = Role::query()->pluck('slug')->all();
 
         $validator = validator($request->all(), [
-            'name' => ['required', 'string', 'max:255'],
+            'username' => [
+                'required',
+                'string',
+                'min:3',
+                'max:64',
+                'alpha_dash',
+                Rule::unique('users', 'username')->ignore($user->id),
+            ],
             'email' => ['required', 'string', 'lowercase', 'email', 'max:255', Rule::unique('users', 'email')->ignore($user->id)],
             'role' => ['required', 'string', Rule::in($roleSlugs)],
             'password' => ['nullable', 'string', 'confirmed', Password::defaults()],
@@ -91,7 +98,6 @@ class UserAccessController extends Controller
             }
         }
 
-        // Role Karyawan hanya untuk akun yang sudah ditautkan lewat Edit Karyawan → Akses Portal.
         if ($data['role'] === User::ROLE_EMPLOYEE) {
             if (blank($user->employee_id)) {
                 return redirect()
@@ -106,7 +112,7 @@ class UserAccessController extends Controller
             $data['employee_id'] = null;
         }
 
-        $user->name = $data['name'];
+        $user->username = $data['username'];
         $user->email = $data['email'];
         $user->role = $data['role'];
         $user->employee_id = $data['employee_id'];
@@ -119,7 +125,7 @@ class UserAccessController extends Controller
 
         return redirect()
             ->route('settings.index', ['tab' => 'hak-akses'])
-            ->with('status', "User \"{$user->email}\" diperbarui.")
+            ->with('status', "User \"{$user->username}\" diperbarui.")
             ->with('settings_tab', 'hak-akses');
     }
 
@@ -146,12 +152,12 @@ class UserAccessController extends Controller
             }
         }
 
-        $email = $user->email;
+        $username = $user->username;
         $user->delete();
 
         return redirect()
             ->route('settings.index', ['tab' => 'hak-akses'])
-            ->with('status', "User \"{$email}\" dihapus.")
+            ->with('status', "User \"{$username}\" dihapus.")
             ->with('settings_tab', 'hak-akses');
     }
 }

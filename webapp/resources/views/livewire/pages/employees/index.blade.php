@@ -3,9 +3,7 @@
 use App\Models\Device;
 use App\Models\Employee;
 use App\Models\User;
-use App\Models\WorkSchedule;
 use App\Services\ParameterService;
-use App\Services\ShiftResolver;
 use App\Support\AppTimezone;
 use App\Support\Toast;
 use Illuminate\Support\Str;
@@ -164,17 +162,7 @@ new #[Layout('layouts.app')] class extends Component
             ));
             $employee->save();
 
-            // Karyawan baru mulai di jadwal default; penempatan khusus lewat menu Shift Kerja.
-            $defaultSchedule = WorkSchedule::active() ?? WorkSchedule::query()->orderBy('created_at')->first();
-            if ($defaultSchedule) {
-                app(ShiftResolver::class)->assign(
-                    $employee,
-                    $defaultSchedule,
-                    $data['join_date'] ?? AppTimezone::nowDisplay()->toDateString(),
-                );
-            }
-
-            // Karyawan baru masuk Unassigned group (roster kalender).
+            // Karyawan baru masuk Unassigned group — jadwal diatur admin lewat kalender Shift.
             try {
                 $groupService = app(\App\Services\ShiftGroupService::class);
                 $groupService->moveEmployee(
@@ -301,7 +289,6 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         if ($portalUser) {
-            $portalUser->name = $employee->full_name;
             $portalUser->email = $data['portal_email'];
             $portalUser->role = User::ROLE_EMPLOYEE;
             $portalUser->employee_id = $employee->id;
@@ -311,7 +298,7 @@ new #[Layout('layouts.app')] class extends Component
             $portalUser->save();
         } else {
             User::query()->forceCreate([
-                'name' => $employee->full_name,
+                'username' => User::generateUniqueUsername('k'.$employee->employee_code),
                 'email' => $data['portal_email'],
                 'password' => $data['portal_password'],
                 'role' => User::ROLE_EMPLOYEE,
@@ -398,25 +385,25 @@ new #[Layout('layouts.app')] class extends Component
         $groups = ParameterService::optionGroups(['JABATAN', 'DEPARTEMEN', 'STATUS PTKP', 'BANK']);
 
         $employees = Employee::query()
-            ->with(['portalUser:id,employee_id,name,email'])
+            ->with(['portalUser:id,employee_id,username,email'])
             ->withCount('fingerprintTemplates')
             ->orderBy('employee_code', 'desc')
             ->paginate(20);
 
-        // Fallback: email akun sistem yang namanya sama (jika portal belum ter-link employee_id).
-        $userEmailsByName = User::query()
-            ->whereNotNull('email')
-            ->where('email', '!=', '')
-            ->get(['name', 'email'])
-            ->mapWithKeys(function (User $user) {
-                $key = mb_strtolower(trim((string) $user->name));
+        // Fallback: email akun portal lewat nama lengkap karyawan (jika portal belum ter-link employee_id).
+        $userEmailsByEmployeeName = Employee::query()
+            ->whereHas('portalUser')
+            ->with('portalUser:id,employee_id,email')
+            ->get(['id', 'full_name'])
+            ->mapWithKeys(function (Employee $employee) {
+                $key = mb_strtolower(trim((string) $employee->full_name));
 
-                return $key !== '' ? [$key => $user->email] : [];
+                return $key !== '' ? [$key => $employee->portalUser?->email] : [];
             });
 
         $data = [
             'employees' => $employees,
-            'userEmailsByName' => $userEmailsByName,
+            'userEmailsByEmployeeName' => $userEmailsByEmployeeName,
             'jabatanOptions' => $groups['JABATAN']['options'],
             'departemenOptions' => $groups['DEPARTEMEN']['options'],
             'ptkpOptions' => $groups['STATUS PTKP']['options'],
@@ -429,7 +416,7 @@ new #[Layout('layouts.app')] class extends Component
 
         if ($this->showModal && $this->editingEmployeeId) {
             $data['editingEmployee'] = Employee::with([
-                'portalUser:id,employee_id,name,email',
+                'portalUser:id,employee_id,username,email',
                 'fingerprintTemplates' => fn ($q) => $q->with('device:id,name'),
                 'salaries',
                 'activeSalary',
@@ -492,7 +479,7 @@ new #[Layout('layouts.app')] class extends Component
                                     <td class="px-6 py-3 whitespace-nowrap">
                                         @php
                                             $accountEmail = $employee->portalUser?->email
-                                                ?: ($userEmailsByName[mb_strtolower(trim($employee->full_name))] ?? null);
+                                                ?: ($userEmailsByEmployeeName[mb_strtolower(trim($employee->full_name))] ?? null);
                                         @endphp
                                         <div class="font-medium text-gray-900">{{ $employee->full_name }}</div>
                                         @if ($accountEmail)
@@ -688,7 +675,7 @@ new #[Layout('layouts.app')] class extends Component
                                     <p class="text-sm font-medium text-gray-800">Akun login</p>
                                     @php
                                         $editAccountEmail = $editingEmployee?->portalUser?->email
-                                            ?? ($userEmailsByName[mb_strtolower(trim($full_name))] ?? null);
+                                            ?? ($userEmailsByEmployeeName[mb_strtolower(trim($full_name))] ?? null);
                                     @endphp
                                     @if ($editAccountEmail)
                                         <p class="mt-0.5 text-xs text-gray-500">{{ $editAccountEmail }}</p>
@@ -898,7 +885,11 @@ new #[Layout('layouts.app')] class extends Component
                                     @endif
 
                                     @if ($editingEmployee?->portalUser)
-                                        <p class="text-xs text-green-700">Portal aktif · email {{ $editingEmployee->portalUser->email }}</p>
+                                        <p class="text-xs text-green-700">
+                                            Portal aktif · username <span class="font-medium">{{ $editingEmployee->portalUser->username }}</span>
+                                            · email {{ $editingEmployee->portalUser->email }}
+                                        </p>
+                                        <p class="text-xs text-gray-500">Ubah username di Settings → Hak Akses.</p>
                                     @endif
 
                                     <div class="flex justify-end pt-2">

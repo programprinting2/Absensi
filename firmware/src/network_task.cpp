@@ -14,7 +14,7 @@ namespace network_task {
 namespace {
 
 const unsigned long DEVICE_ID_RETRY_MS = 10000;
-const unsigned long EMPLOYEE_CACHE_REFRESH_MS = 5UL * 60UL * 1000UL;
+const unsigned long EMPLOYEE_CACHE_REFRESH_MS = 60UL * 1000UL;
 const unsigned long DEVICE_HEARTBEAT_MS = 30UL * 1000UL;
 
 String deviceCodeToResolve;

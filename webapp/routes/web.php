@@ -51,7 +51,6 @@ Route::middleware(['auth', 'verified', 'menu'])->group(function () {
     Route::get('work-schedule', [WorkScheduleController::class, 'edit'])->name('work-schedule.edit');
     Route::post('work-schedule', [WorkScheduleController::class, 'store'])->name('work-schedule.store');
     Route::put('work-schedule/{schedule}', [WorkScheduleController::class, 'update'])->name('work-schedule.update');
-    Route::post('work-schedule/{schedule}/activate', [WorkScheduleController::class, 'activate'])->name('work-schedule.activate');
     Route::delete('work-schedule/{schedule}', [WorkScheduleController::class, 'destroy'])->name('work-schedule.destroy');
 
     Volt::route('attendance', 'pages.attendance.index')->name('attendance.index');

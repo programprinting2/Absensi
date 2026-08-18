@@ -130,6 +130,13 @@ void loop() {
             continue;
         }
 
+        if (result == supabase_client::InsertResult::Rejected) {
+            Serial.print(F("[sync] Ditolak server, buang antrian: "));
+            Serial.println(events[i].path);
+            storage_queue::remove(events[i].path);
+            continue;
+        }
+
         handleFailedUpload(events[i], httpCode);
     }
 }

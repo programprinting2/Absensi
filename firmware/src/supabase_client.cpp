@@ -109,6 +109,9 @@ InsertResult insertAttendanceLog(const String &deviceId, const String &employeeI
     if (code == 409) {
         return InsertResult::DuplicateIgnored;
     }
+    if (code == 422) {
+        return InsertResult::Rejected;
+    }
     return InsertResult::Failed;
 }
 
@@ -116,7 +119,7 @@ bool fetchActiveEmployees(String &outJson) {
     WiFiClient plainClient;
     WiFiClientSecure secureClient;
     HTTPClient http;
-    String url = restUrl("employees?is_active=eq.true&select=id,employee_code,full_name,pin_salt,pin_hash");
+    String url = restUrl("employees?is_active=eq.true&select=id,employee_code,full_name,username,pin_salt,pin_hash");
     if (!beginHttp(http, plainClient, secureClient, url)) {
         return false;
     }
@@ -181,27 +184,6 @@ bool fetchDeviceSettings(const String &deviceId, String &outJson) {
         return true;
     }
     return tryGet("name");
-}
-
-bool fetchActiveWorkSchedule(String &outJson) {
-    WiFiClient plainClient;
-    WiFiClientSecure secureClient;
-    HTTPClient http;
-    String url = restUrl("work_schedules?is_active=eq.true&select=clock_in_time,late_after_time,clock_out_time,break_duration_minutes");
-    if (!beginHttp(http, plainClient, secureClient, url)) {
-        return false;
-    }
-    applyCommonHeaders(http);
-
-    int code = http.GET();
-    logResult("fetchActiveWorkSchedule", url, code);
-    if (code == 200) {
-        outJson = http.getString();
-        http.end();
-        return true;
-    }
-    http.end();
-    return false;
 }
 
 bool fetchPendingCommands(const String &deviceId, String &outJson) {

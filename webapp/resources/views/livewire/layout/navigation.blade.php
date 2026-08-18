@@ -59,10 +59,10 @@ new class extends Component
                 <x-slot name="trigger">
                     <button class="flex items-center w-full px-3 py-2 text-sm font-medium text-gray-700 rounded-lg hover:bg-gray-100 transition">
                         <div class="flex items-center justify-center w-8 h-8 rounded-full bg-gray-200 text-gray-600 text-sm font-semibold shrink-0">
-                            {{ strtoupper(substr(auth()->user()->name, 0, 1)) }}
+                            {{ strtoupper(substr(auth()->user()->systemLabel(), 0, 1)) }}
                         </div>
                         <div class="ml-3 text-left min-w-0">
-                            <div class="truncate font-medium" x-data="{{ json_encode(['name' => auth()->user()->name]) }}" x-text="name" x-on:profile-updated.window="name = $event.detail.name"></div>
+                            <div class="truncate font-medium" x-data="{{ json_encode(['username' => auth()->user()->username]) }}" x-text="username" x-on:profile-updated.window="username = $event.detail.username"></div>
                             <div class="truncate text-xs text-gray-500">{{ auth()->user()->email }}</div>
                         </div>
                         <svg class="ml-auto h-4 w-4 text-gray-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>

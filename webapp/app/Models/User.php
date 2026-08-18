@@ -11,8 +11,9 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Str;
 
-#[Fillable(['name', 'email', 'password'])]
+#[Fillable(['username', 'email', 'password'])]
 #[Hidden(['password', 'remember_token'])]
 class User extends Authenticatable
 {
@@ -22,6 +23,15 @@ class User extends Authenticatable
 
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
+
+    protected static function booted(): void
+    {
+        static::saving(function (User $user) {
+            if (filled($user->username)) {
+                $user->username = strtoupper(trim((string) $user->username));
+            }
+        });
+    }
 
     /**
      * Get the attributes that should be cast.
@@ -70,5 +80,33 @@ class User extends Authenticatable
     public function homeRouteName(): string
     {
         return MenuRegistry::homeRouteForUser($this);
+    }
+
+    /**
+     * Label akun untuk UI sistem (sidebar, log, LCD) — bukan nama lengkap karyawan.
+     */
+    public function systemLabel(): string
+    {
+        return (string) ($this->username ?: $this->email);
+    }
+
+    public static function generateUniqueUsername(string $seed, ?string $ignoreId = null): string
+    {
+        $base = Str::slug($seed, '_');
+        if ($base === '') {
+            $base = 'user';
+        }
+
+        $username = $base;
+        $suffix = 1;
+
+        while (static::query()
+            ->where('username', $username)
+            ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+            ->exists()) {
+            $username = $base.'_'.$suffix++;
+        }
+
+        return $username;
     }
 }

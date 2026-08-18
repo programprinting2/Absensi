@@ -26,7 +26,7 @@
     x-data="{
         editing: {
             id: {{ $editingUser?->id ?? 'null' }},
-            name: {{ \Illuminate\Support\Js::from(old('name', $editingUser?->name ?? '')) }},
+            username: {{ \Illuminate\Support\Js::from(old('username', $editingUser?->username ?? '')) }},
             email: {{ \Illuminate\Support\Js::from(old('email', $editingUser?->email ?? '')) }},
             role: {{ \Illuminate\Support\Js::from(old('role', $editingUser?->role ?? 'admin')) }},
             employeeId: {{ \Illuminate\Support\Js::from(old('employee_id', $editingUser?->employee_id ?? '')) }},
@@ -52,7 +52,7 @@
         <table class="min-w-full text-sm divide-y divide-gray-100">
             <thead class="bg-white text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 <tr>
-                    <th class="px-4 py-2.5">Nama</th>
+                    <th class="px-4 py-2.5">Username</th>
                     <th class="px-4 py-2.5">Role</th>
                     <th class="px-4 py-2.5 text-right">Aksi</th>
                 </tr>
@@ -62,7 +62,7 @@
                     <tr wire:key="access-user-{{ $accessUser->id }}">
                         <td class="px-4 py-3 whitespace-nowrap">
                             <div class="font-medium text-gray-900">
-                                {{ $accessUser->name }}
+                                {{ $accessUser->username }}
                                 @if ($accessUser->id === auth()->id())
                                     <span class="text-xs font-normal text-gray-400">(anda)</span>
                                 @endif
@@ -82,7 +82,7 @@
                                     title="Update"
                                     @click="openEdit({
                                         id: {{ $accessUser->id }},
-                                        name: {{ \Illuminate\Support\Js::from($accessUser->name) }},
+                                        username: {{ \Illuminate\Support\Js::from($accessUser->username) }},
                                         email: {{ \Illuminate\Support\Js::from($accessUser->email) }},
                                         role: {{ \Illuminate\Support\Js::from($accessUser->role) }},
                                         employeeId: {{ \Illuminate\Support\Js::from($accessUser->employee_id ?? '') }},
@@ -127,9 +127,10 @@
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="sm:col-span-2">
-                    <x-input-label for="create_user_name" value="Nama" />
-                    <x-text-input id="create_user_name" name="name" type="text" class="mt-1 block w-full" value="{{ old('name') }}" required />
-                    <x-input-error :messages="$errors->get('name')" class="mt-1" />
+                    <x-input-label for="create_user_username" value="Username" />
+                    <x-text-input id="create_user_username" name="username" type="text" class="mt-1 block w-full" value="{{ old('username') }}" required autocomplete="username" />
+                    <p class="mt-1 text-xs text-gray-500">Dipakai untuk login dan tampilan di layar absensi device.</p>
+                    <x-input-error :messages="$errors->get('username')" class="mt-1" />
                 </div>
                 <div class="sm:col-span-2">
                     <x-input-label for="create_user_email" value="Email login" />
@@ -174,10 +175,11 @@
 
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div class="sm:col-span-2">
-                    <x-input-label for="edit_user_name" value="Nama" />
-                    <input id="edit_user_name" name="name" type="text" x-model="editing.name" required
+                    <x-input-label for="edit_user_username" value="Username" />
+                    <input id="edit_user_username" name="username" type="text" x-model="editing.username" required autocomplete="username"
                            class="mt-1 block w-full border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 rounded-md shadow-sm text-sm" />
-                    <x-input-error :messages="$errors->get('name')" class="mt-1" />
+                    <p class="mt-1 text-xs text-gray-500">Dipakai untuk login dan tampilan di layar absensi device.</p>
+                    <x-input-error :messages="$errors->get('username')" class="mt-1" />
                 </div>
                 <div class="sm:col-span-2">
                     <x-input-label for="edit_user_email" value="Email" />
@@ -229,7 +231,7 @@
             <form method="POST" action="{{ route('settings.users.destroy', $accessUser) }}" class="p-6">
                 @csrf
                 @method('DELETE')
-                <h2 class="text-lg font-medium text-gray-900">Hapus {{ $accessUser->name }}?</h2>
+                <h2 class="text-lg font-medium text-gray-900">Hapus {{ $accessUser->username }}?</h2>
                 <p class="mt-1 text-sm text-gray-600">
                     Akun <span class="font-medium">{{ $accessUser->email }}</span> akan dihapus. Tindakan ini tidak bisa dibatalkan.
                 </p>

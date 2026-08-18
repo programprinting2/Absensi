@@ -14,7 +14,6 @@ ModeTexts clockInTexts;
 ModeTexts breakStartTexts;
 ModeTexts breakEndTexts;
 ModeTexts clockOutTexts;
-WorkSchedule scheduleCache;
 bool loadedFlag = false;
 
 ModeTexts &modeSlot(AttendanceType type) {
@@ -33,11 +32,6 @@ void applyDefaults() {
     breakStartTexts = {"Jangan lupa makan ^_^", "MANTAB ON TIME !", "", "KEMBALI SEBELUM"};
     breakEndTexts = {"Yuk semangat kerja lagi !", "MANTAB ON TIME !", "OVER BREAK", ""};
     clockOutTexts = {"Terima Kasih", "SAMPAI JUMPA LAGI", "PULANG AWAL", ""};
-    scheduleCache.clockInMinutes = 8 * 60;
-    scheduleCache.lateAfterMinutes = 8 * 60;
-    scheduleCache.clockOutMinutes = 17 * 60;
-    scheduleCache.breakDurationMinutes = 60;
-    scheduleCache.loaded = true;
 }
 
 void parseMode(JsonObject modes, const char *key, ModeTexts &out) {
@@ -59,17 +53,6 @@ void parseMode(JsonObject modes, const char *key, ModeTexts &out) {
     }
 }
 
-int parseTimeToMinutes(const String &timeStr) {
-    if (timeStr.length() < 4) {
-        return 0;
-    }
-    int colon = timeStr.indexOf(':');
-    if (colon < 0) {
-        return 0;
-    }
-    return timeStr.substring(0, colon).toInt() * 60 + timeStr.substring(colon + 1, colon + 3).toInt();
-}
-
 void parseFromDoc(JsonDocument &doc, bool resetToDefaults) {
     if (resetToDefaults) {
         applyDefaults();
@@ -85,22 +68,6 @@ void parseFromDoc(JsonDocument &doc, bool resetToDefaults) {
         parseMode(modes, "break_start", breakStartTexts);
         parseMode(modes, "break_end", breakEndTexts);
         parseMode(modes, "clock_out", clockOutTexts);
-    }
-
-    JsonObject sched = doc["schedule"];
-    if (!sched.isNull()) {
-        scheduleCache.clockInMinutes = parseTimeToMinutes(sched["clock_in_time"] | "08:00");
-        // late_after_time boleh null/kosong → pakai jam masuk (selaras webapp).
-        scheduleCache.lateAfterMinutes = scheduleCache.clockInMinutes;
-        if (!sched["late_after_time"].isNull()) {
-            String lateStr = sched["late_after_time"].as<String>();
-            if (lateStr.length() >= 4) {
-                scheduleCache.lateAfterMinutes = parseTimeToMinutes(lateStr);
-            }
-        }
-        scheduleCache.clockOutMinutes = parseTimeToMinutes(sched["clock_out_time"] | "17:00");
-        scheduleCache.breakDurationMinutes = sched["break_duration_minutes"] | 60;
-        scheduleCache.loaded = true;
     }
 }
 
@@ -140,38 +107,24 @@ void loadFromSpiffs() {
 
 bool refresh(const String &deviceId) {
     String deviceJson;
-    String scheduleJson;
 
-    bool gotDevice = supabase_client::fetchDeviceSettings(deviceId, deviceJson);
-    bool gotSchedule = supabase_client::fetchActiveWorkSchedule(scheduleJson);
-
-    if (!gotDevice && !gotSchedule) {
+    if (!supabase_client::fetchDeviceSettings(deviceId, deviceJson)) {
         return false;
     }
 
     JsonDocument doc;
-    if (gotDevice) {
-        JsonDocument deviceDoc;
-        if (deserializeJson(deviceDoc, deviceJson) == DeserializationError::Ok) {
-            JsonArray arr = deviceDoc.as<JsonArray>();
-            if (arr.size() > 0) {
-                doc["name"] = arr[0]["name"];
-                doc["lcd_config"] = arr[0]["lcd_config"];
-            }
-        }
-    } else {
-        doc["name"] = deviceNameCache;
+    JsonDocument deviceDoc;
+    if (deserializeJson(deviceDoc, deviceJson) != DeserializationError::Ok) {
+        return false;
     }
 
-    if (gotSchedule) {
-        JsonDocument scheduleDoc;
-        if (deserializeJson(scheduleDoc, scheduleJson) == DeserializationError::Ok) {
-            JsonArray arr = scheduleDoc.as<JsonArray>();
-            if (arr.size() > 0) {
-                doc["schedule"] = arr[0];
-            }
-        }
+    JsonArray arr = deviceDoc.as<JsonArray>();
+    if (arr.size() == 0) {
+        return false;
     }
+
+    doc["name"] = arr[0]["name"];
+    doc["lcd_config"] = arr[0]["lcd_config"];
 
     parseFromDoc(doc, false);
 
@@ -188,10 +141,6 @@ String deviceName() {
 
 const ModeTexts &modeTexts(AttendanceType type) {
     return modeSlot(type);
-}
-
-const WorkSchedule &schedule() {
-    return scheduleCache;
 }
 
 bool isLoaded() {

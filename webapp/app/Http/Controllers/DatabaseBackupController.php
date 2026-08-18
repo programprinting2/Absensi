@@ -35,7 +35,7 @@ class DatabaseBackupController extends Controller
 
         $token = 'bkp_' . Str::uuid()->toString();
         $user = Auth::user();
-        $userName = $user->name ?? $user->username ?? 'System';
+        $userName = $user?->systemLabel() ?? 'System';
         $storageType = $request->input('storage_type', 'local');
         $backupScope = $request->input('backup_scope', 'full');
         session()->save();
@@ -70,7 +70,7 @@ class DatabaseBackupController extends Controller
 
         $token = (string) $payload['token'];
         $user = Auth::user();
-        $userName = $user->name ?? $user->username ?? 'System';
+        $userName = $user?->systemLabel() ?? 'System';
         $storageType = $payload['storage_type'] ?? 'local';
         $backupScope = $payload['backup_scope'] ?? 'full';
 
@@ -126,7 +126,7 @@ class DatabaseBackupController extends Controller
 
         $token = 'rst_' . Str::uuid()->toString();
         $user = Auth::user();
-        $userName = $user->name ?? $user->username ?? 'System';
+        $userName = $user?->systemLabel() ?? 'System';
         $sourceType = $request->input('source_type', 'local');
         $restoreMode = $request->input('restore_mode', 'full');
         $tempDir = storage_path("app/restore_queue_{$token}");
@@ -221,7 +221,7 @@ class DatabaseBackupController extends Controller
         $restoreMode = $payload['restore_mode'] ?? 'full';
         $selectedTables = $payload['tables'] ?? [];
         $user = Auth::user();
-        $userName = $user->name ?? $user->username ?? 'System';
+        $userName = $user?->systemLabel() ?? 'System';
         $tempDir = storage_path("app/restore_queue_{$token}");
         $archivePath = $tempDir . DIRECTORY_SEPARATOR . 'restore.tar.gz';
 

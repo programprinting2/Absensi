@@ -361,7 +361,16 @@ class ShiftCalendarService
             ['work_date' => $workDate, 'kind' => $kind, 'on' => $on],
         );
 
-        $this->syncRepeatingPatternIfAnchorDate($workDate);
+        // Libur event bersifat per tanggal; hanya libur rutin yang masuk pola 4 minggu.
+        if (! $on || $kind !== ShiftDaySetting::HOLIDAY_EVENT) {
+            $this->syncRepeatingPatternIfAnchorDate($workDate);
+        }
+    }
+
+    private function isRoutinePatternHoliday(?ShiftDaySetting $setting): bool
+    {
+        return (bool) $setting?->is_company_holiday
+            && $setting?->holiday_kind !== ShiftDaySetting::HOLIDAY_EVENT;
     }
 
     /**
@@ -399,7 +408,121 @@ class ShiftCalendarService
             ],
         );
 
+        $this->cleanupDaySettingIfEmpty($row);
         $this->syncRepeatingPatternIfAnchorDate($workDate);
+    }
+
+    /**
+     * Override jam kerja untuk satu tanggal (istirahat tidak diubah).
+     */
+    public function setDayWorkDuration(string $workDate, ?int $workMinutes): void
+    {
+        $row = ShiftDaySetting::query()->firstOrNew(['work_date' => $workDate]);
+        $row->work_duration_minutes = $workMinutes;
+        $row->created_at ??= now();
+        $row->updated_at = now();
+        $row->save();
+
+        $this->audit(
+            'Override jam kerja hari '.$workDate,
+            'shift.day.work_duration',
+            ['work_date' => $workDate, 'work_minutes' => $workMinutes],
+        );
+
+        $this->cleanupDaySettingIfEmpty($row);
+        $this->syncRepeatingPatternIfAnchorDate($workDate);
+    }
+
+    /**
+     * Override istirahat untuk satu tanggal (jam kerja tidak diubah).
+     */
+    public function setDayBreakDuration(string $workDate, ?int $breakMinutes): void
+    {
+        $row = ShiftDaySetting::query()->firstOrNew(['work_date' => $workDate]);
+        $row->break_duration_minutes = $breakMinutes;
+        $row->created_at ??= now();
+        $row->updated_at = now();
+        $row->save();
+
+        $this->audit(
+            'Override istirahat hari '.$workDate,
+            'shift.day.break_duration',
+            ['work_date' => $workDate, 'break_minutes' => $breakMinutes],
+        );
+
+        $this->cleanupDaySettingIfEmpty($row);
+        $this->syncRepeatingPatternIfAnchorDate($workDate);
+    }
+
+    /**
+     * Override jam kerja untuk semua tanggal dengan weekday ISO yang sama dalam rentang tampilan.
+     *
+     * @param  list<string>  $datesInBlock
+     */
+    public function setWorkDurationForWeekday(array $datesInBlock, int $isoWeekday, ?int $workMinutes): void
+    {
+        foreach ($datesInBlock as $date) {
+            $carbon = Carbon::parse($date, AppTimezone::display());
+            if ((int) $carbon->dayOfWeekIso !== $isoWeekday) {
+                continue;
+            }
+
+            $row = ShiftDaySetting::query()->firstOrNew(['work_date' => $date]);
+            $row->work_duration_minutes = $workMinutes;
+            $row->created_at ??= now();
+            $row->updated_at = now();
+            $row->save();
+
+            $this->audit(
+                'Override jam kerja hari '.$date.' (weekday '.$isoWeekday.')',
+                'shift.day.work_duration',
+                ['work_date' => $date, 'work_minutes' => $workMinutes],
+            );
+
+            $this->cleanupDaySettingIfEmpty($row);
+            $this->syncRepeatingPatternIfAnchorDate($date);
+        }
+    }
+
+    /**
+     * Override istirahat untuk semua tanggal dengan weekday ISO yang sama dalam rentang tampilan.
+     *
+     * @param  list<string>  $datesInBlock
+     */
+    public function setBreakDurationForWeekday(array $datesInBlock, int $isoWeekday, ?int $breakMinutes): void
+    {
+        foreach ($datesInBlock as $date) {
+            $carbon = Carbon::parse($date, AppTimezone::display());
+            if ((int) $carbon->dayOfWeekIso !== $isoWeekday) {
+                continue;
+            }
+
+            $row = ShiftDaySetting::query()->firstOrNew(['work_date' => $date]);
+            $row->break_duration_minutes = $breakMinutes;
+            $row->created_at ??= now();
+            $row->updated_at = now();
+            $row->save();
+
+            $this->audit(
+                'Override istirahat hari '.$date.' (weekday '.$isoWeekday.')',
+                'shift.day.break_duration',
+                ['work_date' => $date, 'break_minutes' => $breakMinutes],
+            );
+
+            $this->cleanupDaySettingIfEmpty($row);
+            $this->syncRepeatingPatternIfAnchorDate($date);
+        }
+    }
+
+    private function cleanupDaySettingIfEmpty(ShiftDaySetting $row): void
+    {
+        if (
+            ! $row->is_company_holiday
+            && $row->work_duration_minutes === null
+            && $row->break_duration_minutes === null
+        ) {
+            $row->delete();
+        }
     }
 
     public function toggleEmployeeLibur(string $employeeId, string $workDate, string $source = 'pattern'): bool
@@ -848,10 +971,12 @@ class ShiftCalendarService
         foreach ($board['weeks'] as $week) {
             $weekPayload = [];
             foreach ($week as $di => $cell) {
+                $isRoutineHoliday = (bool) $cell['is_holiday']
+                    && ($cell['holiday_kind'] ?? ShiftDaySetting::HOLIDAY_ROUTINE) !== ShiftDaySetting::HOLIDAY_EVENT;
                 $weekPayload[] = [
                     'weekday' => $di + 1, // 1=Mon
-                    'is_holiday' => $cell['is_holiday'],
-                    'holiday_kind' => $cell['holiday_kind'],
+                    'is_holiday' => $isRoutineHoliday,
+                    'holiday_kind' => $isRoutineHoliday ? ShiftDaySetting::HOLIDAY_ROUTINE : null,
                     'work_duration_minutes' => $cell['work_duration_minutes'],
                     'break_duration_minutes' => $cell['break_duration_minutes'],
                     'entries' => collect($cell['chips'])->map(function ($chips, $scheduleId) {
@@ -1155,10 +1280,13 @@ class ShiftCalendarService
             ->whereDate('work_date', $workDate)
             ->first();
 
+        $isRoutineHoliday = $this->isRoutinePatternHoliday($daySetting);
         $payload['weeks'][$weekIndex][$dayIndex]['entries'] = $entries;
         $payload['weeks'][$weekIndex][$dayIndex]['employee_libur'] = $employeeLibur;
-        $payload['weeks'][$weekIndex][$dayIndex]['is_holiday'] = (bool) ($daySetting?->is_company_holiday);
-        $payload['weeks'][$weekIndex][$dayIndex]['holiday_kind'] = $daySetting?->holiday_kind;
+        $payload['weeks'][$weekIndex][$dayIndex]['is_holiday'] = $isRoutineHoliday;
+        $payload['weeks'][$weekIndex][$dayIndex]['holiday_kind'] = $isRoutineHoliday
+            ? ShiftDaySetting::HOLIDAY_ROUTINE
+            : null;
         $payload['weeks'][$weekIndex][$dayIndex]['work_duration_minutes'] = $daySetting?->work_duration_minutes;
         $payload['weeks'][$weekIndex][$dayIndex]['break_duration_minutes'] = $daySetting?->break_duration_minutes;
         $payload['anchor_start'] = $anchorStart;
@@ -1343,14 +1471,20 @@ class ShiftCalendarService
             ->where('source', 'pattern')
             ->delete();
 
+        $shouldBeHoliday = (bool) ($cell['is_holiday'] ?? false);
         $setting = ShiftDaySetting::query()->whereDate('work_date', $date)->first();
-        if ($setting && $preserveEvents && $setting->holiday_kind === ShiftDaySetting::HOLIDAY_EVENT) {
-            // keep event
+        if (
+            $shouldBeHoliday
+            && $setting
+            && $preserveEvents
+            && $setting->holiday_kind === ShiftDaySetting::HOLIDAY_EVENT
+        ) {
+            // Pertahankan libur event manual bila pola juga menandai hari libur.
         } else {
             $this->setCompanyHoliday(
                 $date,
-                $cell['holiday_kind'] ?? ShiftDaySetting::HOLIDAY_ROUTINE,
-                (bool) ($cell['is_holiday'] ?? false),
+                ShiftDaySetting::HOLIDAY_ROUTINE,
+                $shouldBeHoliday,
             );
             if (! empty($cell['work_duration_minutes']) || ! empty($cell['break_duration_minutes'])) {
                 $this->setDayDurations(

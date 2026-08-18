@@ -141,7 +141,6 @@ class EmployeeController extends Controller
         }
 
         if ($portalUser) {
-            $portalUser->name = $employee->full_name;
             $portalUser->email = $data['portal_email'];
             $portalUser->role = User::ROLE_EMPLOYEE;
             $portalUser->employee_id = $employee->id;
@@ -152,7 +151,7 @@ class EmployeeController extends Controller
         } else {
             $portal = new User;
             $portal->forceFill([
-                'name' => $employee->full_name,
+                'username' => User::generateUniqueUsername('k'.$employee->employee_code),
                 'email' => $data['portal_email'],
                 'password' => $data['portal_password'],
                 'role' => User::ROLE_EMPLOYEE,

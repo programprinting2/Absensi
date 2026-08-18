@@ -7,6 +7,7 @@ namespace supabase_client {
 enum class InsertResult {
     Success,
     DuplicateIgnored, // unique violation client_uuid -> dianggap sukses idempotent
+    Rejected,         // server menolak (mis. tidak ada jadwal)
     Failed,
 };
 
@@ -22,8 +23,6 @@ bool fetchActiveEmployees(String &outJson);
 bool fetchFingerprintTemplates(const String &deviceId, String &outJson);
 
 bool fetchDeviceSettings(const String &deviceId, String &outJson);
-
-bool fetchActiveWorkSchedule(String &outJson);
 
 // Ambil device_commands pending untuk device ini.
 bool fetchPendingCommands(const String &deviceId, String &outJson);

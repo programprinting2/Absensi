@@ -192,7 +192,7 @@ class LeaveService
         ?string $rangeEnd = null,
     ): array {
         $query = EmployeeLeaveGrant::query()
-            ->with(['employee:id,full_name,employee_code', 'creator:id,name'])
+            ->with(['employee:id,full_name,employee_code', 'creator:id,username,email'])
             ->orderByDesc('created_at')
             ->orderByDesc('start_date');
 
@@ -226,7 +226,7 @@ class LeaveService
             'days' => $grant->days,
             'year' => $grant->year,
             'notes' => $grant->notes,
-            'created_by' => $grant->creator?->name,
+            'created_by' => $grant->creator?->systemLabel(),
             'created_at' => $grant->created_at?->timezone(AppTimezone::display())->format('Y-m-d H:i'),
             'created_at_label' => $grant->created_at?->timezone(AppTimezone::display())->locale('id')->translatedFormat('j M Y H:i'),
             'sort_at' => $grant->created_at?->timestamp ?? 0,
@@ -252,7 +252,7 @@ class LeaveService
         $grants = $this->grantHistory(null, $employeeId, $limit, $rangeStart, $rangeEnd);
 
         $usageQuery = EmployeeLeave::query()
-            ->with(['employee:id,full_name,employee_code', 'requester:id,name', 'reviewer:id,name'])
+            ->with(['employee:id,full_name,employee_code', 'requester:id,username,email', 'reviewer:id,username,email'])
             ->where('leave_type', EmployeeLeave::TYPE_TAHUNAN)
             ->where('status', EmployeeLeave::STATUS_APPROVED)
             ->whereDate('start_date', '<=', $rangeEnd)
@@ -284,7 +284,7 @@ class LeaveService
                 'days' => $leave->days_count,
                 'year' => (int) ($leave->start_date?->year ?? 0),
                 'notes' => $leave->reason ?: $leave->typeLabel(),
-                'created_by' => $leave->reviewer?->name ?: $leave->requester?->name,
+                'created_by' => $leave->reviewer?->systemLabel() ?: $leave->requester?->systemLabel(),
                 'created_at' => $when?->timezone(AppTimezone::display())->format('Y-m-d H:i'),
                 'created_at_label' => $when?->timezone(AppTimezone::display())->locale('id')->translatedFormat('j M Y H:i'),
                 'sort_at' => $when?->timestamp ?? 0,
@@ -659,7 +659,7 @@ class LeaveService
     public function indexPayload(?string $status = null, ?string $employeeId = null): array
     {
         $query = EmployeeLeave::query()
-            ->with(['employee:id,full_name,employee_code', 'requester:id,name', 'reviewer:id,name'])
+            ->with(['employee:id,full_name,employee_code', 'requester:id,username,email', 'reviewer:id,username,email'])
             ->orderByDesc('created_at')
             ->orderByDesc('start_date');
 
@@ -749,8 +749,8 @@ class LeaveService
             'reason' => $leave->reason,
             'status' => $leave->status,
             'status_label' => $leave->statusLabel(),
-            'requested_by' => $leave->requester?->name,
-            'reviewed_by' => $leave->reviewer?->name,
+            'requested_by' => $leave->requester?->systemLabel(),
+            'reviewed_by' => $leave->reviewer?->systemLabel(),
             'reviewed_at' => $leave->reviewed_at?->timezone(AppTimezone::display())->format('Y-m-d H:i'),
             'review_notes' => $leave->review_notes,
             'created_at' => $leave->created_at?->timezone(AppTimezone::display())->format('Y-m-d H:i'),

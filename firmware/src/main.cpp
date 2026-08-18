@@ -4,6 +4,7 @@
 #include "buzzer_handler.h"
 #include "command_poller.h"
 #include "config.h"
+#include "dashboard_client.h"
 #include "device_config.h"
 #include "employee_cache.h"
 #include "fingerprint_handler.h"
@@ -99,6 +100,38 @@ void recordAttendance(const String &employeeId, const String &employeeName, Atte
 
     bool needsTimeCorrection = !ntp_time::hasValidClockThisBoot();
     bool isOfflineCapture = !wifi_manager::isConnected() || needsTimeCorrection;
+    bool wifiConnected = wifi_manager::isConnected();
+    bool serverOk = network_task::isServerReachable();
+    bool canEvalOnline = wifiConnected && serverOk && !needsTimeCorrection;
+
+    time_t breakStartForEval = 0;
+    if (type == AttendanceType::BreakEnd) {
+        attendance_rules::loadBreakStart(employeeId, now, breakStartForEval);
+    }
+
+    attendance_rules::AttendanceIndicator indicator;
+    bool allowed = true;
+    String scheduleName;
+    bool serverEval = false;
+
+    if (canEvalOnline) {
+        serverEval = dashboard_client::evaluateAttendance(
+            employeeId, attendanceTypeToString(type), now, breakStartForEval, indicator,
+            allowed, scheduleName);
+        if (serverEval && !allowed) {
+            buzzer_handler::beepFail();
+            lcd_ui::showAttendanceRejected(indicator.barText, employeeName);
+            lastResultWasFailure = true;
+            awaitingFingerLift = true;
+            state = AppState::ShowResult;
+            return;
+        }
+    }
+
+    if (!serverEval) {
+        indicator = attendance_rules::evaluateOffline(type);
+        scheduleName = "";
+    }
 
     bool queued = storage_queue::enqueue(employeeId, attendanceTypeToString(type),
                                           method == AttendanceMethod::Fingerprint ? "fingerprint" : "pin",
@@ -112,16 +145,18 @@ void recordAttendance(const String &employeeId, const String &employeeName, Atte
 
     network_task::requestSyncNow();
 
-    attendance_rules::AttendanceIndicator indicator =
-        attendance_rules::evaluate(employeeId, type, now);
+    if (type == AttendanceType::BreakStart) {
+        attendance_rules::saveBreakStart(employeeId, now);
+    }
+
+    if (type == AttendanceType::BreakEnd) {
+        attendance_rules::markBreakEnded(employeeId);
+    }
 
     buzzer_handler::beepSuccess();
     lcd_ui::showAttendanceResult(type, employeeName, attendanceTypeToLabel(type),
-                                 formatClock(now), indicator);
+                                 formatClock(now), indicator, scheduleName);
     lastResultWasFailure = false;
-    // Tunggu jari yang barusan absen terangkat dulu sebelum menerima scan
-    // baru -- supaya orang berikutnya tetap bisa langsung scan begitu jari
-    // sebelumnya lepas, tanpa risiko jari yang sama ke-scan dobel.
     awaitingFingerLift = true;
     state = AppState::ShowResult;
 }
@@ -483,7 +518,7 @@ void loop() {
             if (slotId >= 0) {
                 employee_cache::Employee employee;
                 if (employee_cache::findBySlotId(slotId, employee)) {
-                    recordAttendance(employee.id, employee.fullName, currentMode, AttendanceMethod::Fingerprint);
+                    recordAttendance(employee.id, employee.displayName, currentMode, AttendanceMethod::Fingerprint);
                 } else {
                     handleFingerprintRejected(slotId, "Sidik Jari Tidak Dikenali");
                 }
@@ -510,7 +545,7 @@ void loop() {
                 employee_cache::Employee employee;
                 if (employee_cache::findByEmployeeCode(inputBuffer.toInt(), employee)) {
                     pendingEmployeeId = employee.id;
-                    pendingEmployeeName = employee.fullName;
+                    pendingEmployeeName = employee.displayName;
                     inputBuffer = "";
                     state = AppState::InputPin;
                     bool wifiConnected = false;
@@ -620,7 +655,7 @@ void loop() {
                 if (slotId >= 0) {
                     employee_cache::Employee employee;
                     if (employee_cache::findBySlotId(slotId, employee)) {
-                        recordAttendance(employee.id, employee.fullName, currentMode, AttendanceMethod::Fingerprint);
+                        recordAttendance(employee.id, employee.displayName, currentMode, AttendanceMethod::Fingerprint);
                     } else {
                         handleFingerprintRejected(slotId, "Sidik Jari Tidak Dikenali");
                     }

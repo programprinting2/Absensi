@@ -26,11 +26,6 @@ class WorkScheduleController extends Controller
         return redirect()->route('shifts.index', ['tab' => 'rules']);
     }
 
-    public function activate(WorkSchedule $schedule)
-    {
-        return redirect()->route('shifts.index', ['tab' => 'rules']);
-    }
-
     public function destroy(WorkSchedule $schedule)
     {
         return redirect()->route('shifts.index', ['tab' => 'rules']);
