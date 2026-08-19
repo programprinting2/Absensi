@@ -46,6 +46,7 @@ class ShiftResolver
         $daySetting = ShiftDaySetting::query()->whereDate('work_date', $day)->first();
         $workOverride = $daySetting?->work_duration_minutes;
         $breakOverride = $daySetting?->break_duration_minutes;
+        $breakEarliestOverride = $this->formatBreakEarliestTime($daySetting?->break_earliest_time);
 
         // 1) Libur request (cuti/sakit/izin approved)
         $leaveMap = app(LeaveService::class)->approvedLeavesByEmployeeDate(
@@ -60,6 +61,7 @@ class ShiftResolver
                 isExcused: true,
                 workDurationOverride: $workOverride,
                 breakDurationOverride: $breakOverride,
+                breakEarliestTimeOverride: $breakEarliestOverride,
             );
         }
 
@@ -75,6 +77,7 @@ class ShiftResolver
                 isExcused: true,
                 workDurationOverride: $workOverride,
                 breakDurationOverride: $breakOverride,
+                breakEarliestTimeOverride: $breakEarliestOverride,
             );
         }
 
@@ -91,6 +94,7 @@ class ShiftResolver
                 isCompanyHoliday: true,
                 workDurationOverride: $workOverride,
                 breakDurationOverride: $breakOverride,
+                breakEarliestTimeOverride: $breakEarliestOverride,
             );
         }
 
@@ -100,13 +104,14 @@ class ShiftResolver
             ->where('employee_id', $employeeId)
             ->whereDate('work_date', $day)
             ->first();
-        if ($shiftOverride?->schedule) {
+        if ($shiftOverride?->schedule && $this->scheduleAppliesOnDate($shiftOverride->schedule, $day)) {
             return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
                 kind: ResolvedShiftDay::KIND_WORK,
-                schedule: $this->withDayOverrides($shiftOverride->schedule, $workOverride, $breakOverride),
+                schedule: $this->withDayOverrides($shiftOverride->schedule, $workOverride, $breakOverride, $breakEarliestOverride),
                 label: $shiftOverride->schedule->name,
                 workDurationOverride: $workOverride,
                 breakDurationOverride: $breakOverride,
+                breakEarliestTimeOverride: $breakEarliestOverride,
             );
         }
 
@@ -117,13 +122,14 @@ class ShiftResolver
             ->whereDate('work_date', $day)
             ->orderBy('sort_order')
             ->first();
-        if ($directEntry?->schedule) {
+        if ($directEntry?->schedule && $this->scheduleAppliesOnDate($directEntry->schedule, $day)) {
             return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
                 kind: ResolvedShiftDay::KIND_WORK,
-                schedule: $this->withDayOverrides($directEntry->schedule, $workOverride, $breakOverride),
+                schedule: $this->withDayOverrides($directEntry->schedule, $workOverride, $breakOverride, $breakEarliestOverride),
                 label: $directEntry->schedule->name,
                 workDurationOverride: $workOverride,
                 breakDurationOverride: $breakOverride,
+                breakEarliestTimeOverride: $breakEarliestOverride,
             );
         }
 
@@ -137,13 +143,14 @@ class ShiftResolver
                 ->orderBy('sort_order')
                 ->first();
 
-            if ($entry?->schedule) {
+            if ($entry?->schedule && $this->scheduleAppliesOnDate($entry->schedule, $day)) {
                 return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
                     kind: ResolvedShiftDay::KIND_WORK,
-                    schedule: $this->withDayOverrides($entry->schedule, $workOverride, $breakOverride),
+                    schedule: $this->withDayOverrides($entry->schedule, $workOverride, $breakOverride, $breakEarliestOverride),
                     label: $entry->schedule->name,
                     workDurationOverride: $workOverride,
                     breakDurationOverride: $breakOverride,
+                    breakEarliestTimeOverride: $breakEarliestOverride,
                 );
             }
         }
@@ -340,9 +347,13 @@ class ShiftResolver
         return $count;
     }
 
-    private function withDayOverrides(WorkSchedule $schedule, ?int $work, ?int $break): WorkSchedule
-    {
-        if ($work === null && $break === null) {
+    private function withDayOverrides(
+        WorkSchedule $schedule,
+        ?int $work,
+        ?int $break,
+        ?string $breakEarliest = null,
+    ): WorkSchedule {
+        if ($work === null && $break === null && $breakEarliest === null) {
             return $schedule;
         }
 
@@ -355,8 +366,25 @@ class ShiftResolver
         if ($break !== null) {
             $clone->break_duration_minutes = $break;
         }
+        if ($breakEarliest !== null) {
+            $clone->break_earliest_time = $breakEarliest;
+        }
 
         return $clone;
+    }
+
+    private function scheduleAppliesOnDate(WorkSchedule $schedule, string $day): bool
+    {
+        return $schedule->isImplementedOnDate($day);
+    }
+
+    private function formatBreakEarliestTime(mixed $time): ?string
+    {
+        if ($time === null || $time === '') {
+            return null;
+        }
+
+        return substr((string) $time, 0, 5);
     }
 
     private function toDateString(Carbon|string $date): string

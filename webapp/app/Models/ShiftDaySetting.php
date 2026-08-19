@@ -21,6 +21,7 @@ class ShiftDaySetting extends Model
         'holiday_kind',
         'work_duration_minutes',
         'break_duration_minutes',
+        'break_earliest_time',
         'created_at',
         'updated_at',
     ];

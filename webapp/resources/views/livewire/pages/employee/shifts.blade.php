@@ -455,6 +455,22 @@ new #[Layout('layouts.app')] class extends Component
                                                                         3
                                                                     ));
                                                                     $mine = $cell['mine'] ?? null;
+                                                                    $durationOverrideLines = [];
+                                                                    if (filled($cell['work_duration_minutes'])) {
+                                                                        $workMins = (int) $cell['work_duration_minutes'];
+                                                                        $durationOverrideLines[] = $workMins % 60 === 0
+                                                                            ? 'Jam kerja: '.($workMins / 60).' jam'
+                                                                            : 'Jam kerja: '.$workMins.' menit';
+                                                                    }
+                                                                    if (filled($cell['break_duration_minutes'])) {
+                                                                        $durationOverrideLines[] = 'Istirahat: '.(int) $cell['break_duration_minutes'].' menit';
+                                                                    }
+                                                                    if (filled($cell['break_earliest_time'])) {
+                                                                        $durationOverrideLines[] = 'Mulai istirahat: '.$cell['break_earliest_time'];
+                                                                    }
+                                                                    $hasDurationOverride = filled($cell['work_duration_minutes'])
+                                                                        || filled($cell['break_duration_minutes'])
+                                                                        || filled($cell['break_earliest_time']);
                                                                 @endphp
                                                                 <div wire:key="my-cell-{{ $cell['date'] }}"
                                                                     style="padding: 0.5rem; gap: 0.5rem"
@@ -499,6 +515,42 @@ new #[Layout('layouts.app')] class extends Component
                                                                         @else
                                                                             <span class="min-w-0 flex-1"></span>
                                                                         @endif
+                                                                        @if ($hasDurationOverride)
+                                                                            <span
+                                                                                x-data="{
+                                                                                    showDurationTip: false,
+                                                                                    durationTipStyle: '',
+                                                                                    showTip() {
+                                                                                        const r = this.$el.getBoundingClientRect();
+                                                                                        const left = Math.max(8, Math.min(r.left, window.innerWidth - 288));
+                                                                                        this.durationTipStyle = `left:${left}px;top:${r.top - 4}px;transform:translateY(-100%)`;
+                                                                                        this.showDurationTip = true;
+                                                                                    },
+                                                                                }"
+                                                                                class="inline-flex shrink-0 self-stretch"
+                                                                                @mouseenter="showTip()"
+                                                                                @mouseleave="showDurationTip = false"
+                                                                            >
+                                                                                <span class="inline-flex shrink-0 items-center justify-end rounded self-stretch pr-0.5 text-red-600 cursor-default"
+                                                                                    style="padding-top: 0.25rem; padding-bottom: 0.25rem;">
+                                                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                                                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                                                    </svg>
+                                                                                </span>
+                                                                                <template x-teleport="body">
+                                                                                    <span
+                                                                                        x-show="showDurationTip"
+                                                                                        role="tooltip"
+                                                                                        :style="durationTipStyle"
+                                                                                        class="pointer-events-none fixed z-[9999] max-w-[280px] rounded-md bg-gray-900 px-2.5 py-1.5 text-xs font-medium leading-snug text-white shadow-lg whitespace-normal"
+                                                                                    >
+                                                                                        @foreach ($durationOverrideLines as $line)
+                                                                                            <span class="block">{{ $line }}</span>
+                                                                                        @endforeach
+                                                                                    </span>
+                                                                                </template>
+                                                                            </span>
+                                                                        @endif
                                                                     </div>
 
                                                                     @if ($cell['is_holiday'])
@@ -524,6 +576,9 @@ new #[Layout('layouts.app')] class extends Component
                                                                     @else
                                                                         <div class="flex-1 flex flex-col min-w-0" style="gap: 0.5rem">
                                                                             @foreach ($board['schedules'] as $sched)
+                                                                                @if (! in_array($sched->id, $cell['visible_schedule_ids'] ?? [], true))
+                                                                                    @continue
+                                                                                @endif
                                                                                 @php
                                                                                     $chips = $cell['chips'][$sched->id] ?? [];
                                                                                     $scheduleHoursLabel = substr((string) $sched->clock_in_time, 0, 5).' ~ '.substr((string) $sched->clock_out_time, 0, 5);

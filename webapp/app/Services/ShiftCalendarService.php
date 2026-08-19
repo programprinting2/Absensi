@@ -15,6 +15,7 @@ use App\Models\ShiftSwapRequest;
 use App\Models\WorkSchedule;
 use App\Support\AppTimezone;
 use App\Support\IndonesianHolidays;
+use App\Support\ResolvedShiftDay;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -153,6 +154,8 @@ class ShiftCalendarService
 
     public function placeGroupOnDate(string $groupId, string $scheduleId, string $workDate): ShiftCalendarEntry
     {
+        $this->ensureScheduleImplementedOnDate($scheduleId, $workDate);
+
         $existing = ShiftCalendarEntry::query()
             ->where('group_id', $groupId)
             ->whereDate('work_date', $workDate)
@@ -244,6 +247,8 @@ class ShiftCalendarService
 
     public function placeEmployeeOnDate(string $employeeId, string $scheduleId, string $workDate): ShiftCalendarEntry
     {
+        $this->ensureScheduleImplementedOnDate($scheduleId, $workDate);
+
         $existing = ShiftCalendarEntry::query()
             ->where('employee_id', $employeeId)
             ->whereDate('work_date', $workDate)
@@ -389,11 +394,16 @@ class ShiftCalendarService
         }
     }
 
-    public function setDayDurations(string $workDate, ?int $workMinutes, ?int $breakMinutes): void
-    {
+    public function setDayDurations(
+        string $workDate,
+        ?int $workMinutes,
+        ?int $breakMinutes,
+        ?string $breakEarliestTime = null,
+    ): void {
         $row = ShiftDaySetting::query()->firstOrNew(['work_date' => $workDate]);
         $row->work_duration_minutes = $workMinutes;
         $row->break_duration_minutes = $breakMinutes;
+        $row->break_earliest_time = $breakEarliestTime;
         $row->created_at ??= now();
         $row->updated_at = now();
         $row->save();
@@ -405,6 +415,7 @@ class ShiftCalendarService
                 'work_date' => $workDate,
                 'work_minutes' => $workMinutes,
                 'break_minutes' => $breakMinutes,
+                'break_earliest_time' => $breakEarliestTime,
             ],
         );
 
@@ -524,6 +535,7 @@ class ShiftCalendarService
         int $isoWeekday,
         ?int $workMinutes,
         ?int $breakMinutes,
+        ?string $breakEarliestTime = null,
     ): void {
         foreach ($datesInBlock as $date) {
             $carbon = Carbon::parse($date, AppTimezone::display());
@@ -531,7 +543,7 @@ class ShiftCalendarService
                 continue;
             }
 
-            $this->setDayDurations($date, $workMinutes, $breakMinutes);
+            $this->setDayDurations($date, $workMinutes, $breakMinutes, $breakEarliestTime);
         }
     }
 
@@ -541,6 +553,7 @@ class ShiftCalendarService
             ! $row->is_company_holiday
             && $row->work_duration_minutes === null
             && $row->break_duration_minutes === null
+            && $row->break_earliest_time === null
         ) {
             $row->delete();
         }
@@ -590,6 +603,8 @@ class ShiftCalendarService
 
     public function setShiftOverride(string $employeeId, string $workDate, string $scheduleId, ?string $reason = null): void
     {
+        $this->ensureScheduleImplementedOnDate($scheduleId, $workDate);
+
         ShiftEmployeeShiftOverride::query()->updateOrCreate(
             [
                 'employee_id' => $employeeId,
@@ -870,19 +885,27 @@ class ShiftCalendarService
 
                 $monthStart = $block['month_start'] ?? $block['start'];
                 $monthEnd = $block['month_end'] ?? $block['end'];
+                $dateCarbon = Carbon::parse($date, AppTimezone::display());
 
                 $weekUi[] = [
                     'date' => $date,
-                    'day' => (int) Carbon::parse($date)->format('j'),
+                    'day' => (int) $dateCarbon->format('j'),
                     'in_month' => $date >= $monthStart && $date <= $monthEnd,
                     'is_today' => $date === $today,
                     'is_holiday' => $isHoliday,
                     'holiday_kind' => $setting?->holiday_kind,
                     'work_duration_minutes' => $setting?->work_duration_minutes,
                     'break_duration_minutes' => $setting?->break_duration_minutes,
+                    'break_earliest_time' => $setting?->break_earliest_time
+                        ? substr((string) $setting->break_earliest_time, 0, 5)
+                        : null,
                     'national' => $national[$date] ?? null,
                     'chips' => $chipsBySchedule,
                     'foot' => $foot,
+                    'visible_schedule_ids' => $schedules
+                        ->filter(fn (WorkSchedule $schedule) => $schedule->isImplementedOnDate($dateCarbon))
+                        ->pluck('id')
+                        ->all(),
                 ];
             }
             $weeksUi[] = $weekUi;
@@ -1000,6 +1023,7 @@ class ShiftCalendarService
                     'holiday_kind' => $isRoutineHoliday ? ShiftDaySetting::HOLIDAY_ROUTINE : null,
                     'work_duration_minutes' => $cell['work_duration_minutes'],
                     'break_duration_minutes' => $cell['break_duration_minutes'],
+                    'break_earliest_time' => $cell['break_earliest_time'] ?? null,
                     'entries' => collect($cell['chips'])->map(function ($chips, $scheduleId) {
                         return collect($chips)->map(function ($c) use ($scheduleId) {
                             $row = ['work_schedule_id' => $scheduleId];
@@ -1310,6 +1334,9 @@ class ShiftCalendarService
             : null;
         $payload['weeks'][$weekIndex][$dayIndex]['work_duration_minutes'] = $daySetting?->work_duration_minutes;
         $payload['weeks'][$weekIndex][$dayIndex]['break_duration_minutes'] = $daySetting?->break_duration_minutes;
+        $payload['weeks'][$weekIndex][$dayIndex]['break_earliest_time'] = $daySetting?->break_earliest_time
+            ? substr((string) $daySetting->break_earliest_time, 0, 5)
+            : null;
         $payload['anchor_start'] = $anchorStart;
 
         return $payload;
@@ -1461,7 +1488,7 @@ class ShiftCalendarService
         }
 
         $this->setCompanyHoliday($date, ShiftDaySetting::HOLIDAY_ROUTINE, false);
-        $this->setDayDurations($date, null, null);
+        $this->setDayDurations($date, null, null, null);
     }
 
     /**
@@ -1514,12 +1541,25 @@ class ShiftCalendarService
             $date,
             $cell['work_duration_minutes'] ?? null,
             $cell['break_duration_minutes'] ?? null,
+            $cell['break_earliest_time'] ?? null,
         );
 
         foreach ($cell['entries'] ?? [] as $entry) {
             if (empty($entry['work_schedule_id'])) {
                 continue;
             }
+
+            $schedule = WorkSchedule::query()->find($entry['work_schedule_id']);
+            if (! $schedule) {
+                continue;
+            }
+            if ($schedule->implementation_mode === WorkSchedule::IMPLEMENTATION_SPECIFIC_DATES) {
+                continue;
+            }
+            if (! $schedule->isImplementedOnDate($date)) {
+                continue;
+            }
+
             if (! empty($entry['employee_id'])) {
                 if (! Employee::query()->whereKey($entry['employee_id'])->where('is_active', true)->exists()) {
                     continue;
@@ -1615,7 +1655,15 @@ class ShiftCalendarService
                         if ($setting->is_company_holiday && $setting->holiday_kind !== ShiftDaySetting::HOLIDAY_EVENT) {
                             $this->setCompanyHoliday($to, ShiftDaySetting::HOLIDAY_ROUTINE, true);
                         }
-                        $this->setDayDurations($to, $setting->work_duration_minutes, $setting->break_duration_minutes);
+                        $breakEarliest = $setting->break_earliest_time
+                            ? substr((string) $setting->break_earliest_time, 0, 5)
+                            : null;
+                        $this->setDayDurations(
+                            $to,
+                            $setting->work_duration_minutes,
+                            $setting->break_duration_minutes,
+                            $breakEarliest,
+                        );
                     }
 
                     foreach (ShiftEmployeeLibur::query()->whereDate('work_date', $from)->where('source', 'pattern')->get() as $libur) {
@@ -1710,8 +1758,8 @@ class ShiftCalendarService
                     'is_excused' => $resolved->isExcused,
                     'is_company_holiday' => $resolved->isCompanyHoliday,
                     'schedule_name' => $resolved->schedule?->name,
-                    'clock_in' => $resolved->schedule?->clock_in_time,
-                    'clock_out' => $resolved->schedule?->clock_out_time,
+                    'clock_in' => $resolved->displayClockIn(),
+                    'clock_out' => $resolved->displayClockOut(),
                     'national' => $national[$date] ?? null,
                 ];
             }
@@ -1758,8 +1806,11 @@ class ShiftCalendarService
                     'schedule_color' => $scheduleIndex !== false
                         ? $scheduleColors[$scheduleIndex % count($scheduleColors)]
                         : null,
-                    'clock_in' => $resolved->schedule?->clock_in_time,
-                    'clock_out' => $resolved->schedule?->clock_out_time,
+                    'clock_in' => $resolved->displayClockIn(),
+                    'clock_out' => $resolved->displayClockOut(),
+                    'has_duration_override' => filled($cell['work_duration_minutes'])
+                        || filled($cell['break_duration_minutes'])
+                        || filled($cell['break_earliest_time']),
                 ];
             }
         }
@@ -1922,5 +1973,116 @@ class ShiftCalendarService
         return $this->groupMembers($byGroup, $groupId)
             ->filter(fn (ShiftGroupMember $m) => $this->memberActiveOnDate($m, $date) && (bool) $m->employee?->is_active)
             ->count();
+    }
+
+    private function ensureScheduleImplementedOnDate(string $scheduleId, string $workDate): WorkSchedule
+    {
+        $schedule = WorkSchedule::query()->findOrFail($scheduleId);
+
+        if (! $schedule->isImplementedOnDate($workDate)) {
+            throw new \InvalidArgumentException(
+                'Shift "'.$schedule->name.'" tidak berlaku di tanggal '.$workDate.'.',
+            );
+        }
+
+        return $schedule;
+    }
+
+    /**
+     * @return array{removed_entries: int, unscheduled_employees: list<string>}
+     */
+    public function previewImplementationImpact(
+        string $scheduleId,
+        string $mode,
+        ?array $weekdays = null,
+        ?array $monthDays = null,
+        ?array $specificDates = null,
+    ): array {
+        $rules = WorkSchedule::previewFromRules($mode, $weekdays, $monthDays, $specificDates);
+
+        DB::beginTransaction();
+        try {
+            $impact = $this->analyzeInvalidScheduleEntries($scheduleId, $rules, true);
+            DB::rollBack();
+            app(ShiftResolver::class)->forgetCache();
+
+            return $impact;
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            app(ShiftResolver::class)->forgetCache();
+            throw $e;
+        }
+    }
+
+    /**
+     * @return array{removed_entries: int, unscheduled_employees: list<string>}
+     */
+    public function cleanupInvalidScheduleEntries(WorkSchedule $schedule): array
+    {
+        return DB::transaction(function () use ($schedule) {
+            $impact = $this->analyzeInvalidScheduleEntries((string) $schedule->id, $schedule, true);
+            app(ShiftResolver::class)->forgetCache();
+
+            return $impact;
+        });
+    }
+
+    /**
+     * @return array{removed_entries: int, unscheduled_employees: list<string>}
+     */
+    private function analyzeInvalidScheduleEntries(
+        string $scheduleId,
+        WorkSchedule $rules,
+        bool $delete = false,
+    ): array {
+        $entries = ShiftCalendarEntry::query()
+            ->where('work_schedule_id', $scheduleId)
+            ->with(['employee', 'group'])
+            ->get();
+
+        $removed = 0;
+        /** @var array<string, string> $unscheduled */
+        $unscheduled = [];
+        $groupService = app(ShiftGroupService::class);
+        $resolver = app(ShiftResolver::class);
+
+        foreach ($entries as $entry) {
+            $date = $entry->work_date->toDateString();
+            if ($rules->isImplementedOnDate($date)) {
+                continue;
+            }
+
+            $employeeIds = [];
+            if ($entry->employee_id) {
+                $employeeIds = [(string) $entry->employee_id];
+            } elseif ($entry->group_id) {
+                $employeeIds = collect($groupService->membersOnDate((string) $entry->group_id, $date))
+                    ->pluck('id')
+                    ->map(fn ($id) => (string) $id)
+                    ->all();
+            }
+
+            if ($delete) {
+                $entry->delete();
+            }
+            $removed++;
+
+            foreach ($employeeIds as $employeeId) {
+                if ($delete) {
+                    $resolved = $resolver->resolveDay($employeeId, $date);
+                    if ($resolved->kind === ResolvedShiftDay::KIND_UNSCHEDULED) {
+                        $name = Employee::query()->whereKey($employeeId)->value('full_name');
+                        if (is_string($name) && $name !== '') {
+                            $unscheduled[$employeeId] = $name;
+                        }
+                    }
+                }
+            }
+        }
+
+        return [
+            'removed_entries' => $removed,
+            'unscheduled_employees' => array_values($unscheduled),
+        ];
     }
 }

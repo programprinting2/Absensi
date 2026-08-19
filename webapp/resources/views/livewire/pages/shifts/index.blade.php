@@ -36,7 +36,30 @@ new #[Layout('layouts.app')] class extends Component
 
     public int $rule_break_minutes = 60;
 
+    public string $rule_break_earliest_mode = 'free';
+
+    public string $rule_break_earliest_time = '12:00';
+
     public string $rule_late_after = '08:15';
+
+    public string $rule_implementation_mode = 'default';
+
+    /** @var list<int|string> */
+    public array $rule_implementation_weekdays = [];
+
+    public string $rule_implementation_month_days = '';
+
+    /** @var list<string> */
+    public array $rule_implementation_specific_dates = [];
+
+    public string $rule_implementation_specific_date_input = '';
+
+    public bool $showRuleImpactConfirm = false;
+
+    /** @var array{removed_entries: int, unscheduled_employees: list<string>} */
+    public array $ruleImpactPreview = [];
+
+    public bool $ruleSaveConfirmed = false;
 
     // —— Group ——
     public bool $showGroupModal = false;
@@ -347,6 +370,24 @@ new #[Layout('layouts.app')] class extends Component
             && $this->isDateInActiveRepeatingAnchor($date);
     }
 
+    public function isPastCalendarDate(string $date): bool
+    {
+        return $date < AppTimezone::nowDisplay()->toDateString();
+    }
+
+    /**
+     * Mode baca: libur rutin & tukar shift hanya untuk hari ini ke depan.
+     * Mode atur: mengikuti aturan editable kalender.
+     */
+    public function canManageMembersOnDate(string $date): bool
+    {
+        if ($this->calendarEditMode) {
+            return $this->isCalendarDateEditable($date);
+        }
+
+        return ! $this->isPastCalendarDate($date);
+    }
+
     public function isCalendarDateInView(string $date): bool
     {
         if ($this->calendarViewMode !== 'month') {
@@ -361,14 +402,26 @@ new #[Layout('layouts.app')] class extends Component
 
     public function canManageLiburOnDate(string $date): bool
     {
-        return $this->isCalendarDateInView($date)
-            && $this->isDateInActiveRepeatingAnchor($date);
+        if (! $this->isCalendarDateInView($date)
+            || ! $this->isDateInActiveRepeatingAnchor($date)) {
+            return false;
+        }
+
+        if (! $this->calendarEditMode && $this->isPastCalendarDate($date)) {
+            return false;
+        }
+
+        return true;
     }
 
     private function ensureCanManageLiburOnDate(string $date): bool
     {
         if (! $this->canManageLiburOnDate($date)) {
-            Toast::error('Hari di luar bulan ini tidak dapat diubah di tampilan Kalender.', $this);
+            if (! $this->calendarEditMode && $this->isPastCalendarDate($date)) {
+                Toast::error('Hari yang sudah lewat tidak dapat diubah di mode baca.', $this);
+            } else {
+                Toast::error('Hari di luar bulan ini tidak dapat diubah di tampilan Kalender.', $this);
+            }
 
             return false;
         }
@@ -505,7 +558,17 @@ new #[Layout('layouts.app')] class extends Component
         $this->rule_clock_in = '08:00';
         $this->rule_work_hours = 8;
         $this->rule_break_minutes = 60;
+        $this->rule_break_earliest_mode = 'free';
+        $this->rule_break_earliest_time = '12:00';
         $this->rule_late_after = '08:15';
+        $this->rule_implementation_mode = 'default';
+        $this->rule_implementation_weekdays = [];
+        $this->rule_implementation_month_days = '';
+        $this->rule_implementation_specific_dates = [];
+        $this->rule_implementation_specific_date_input = '';
+        $this->showRuleImpactConfirm = false;
+        $this->ruleImpactPreview = [];
+        $this->ruleSaveConfirmed = false;
         $this->showRuleModal = true;
     }
 
@@ -518,7 +581,21 @@ new #[Layout('layouts.app')] class extends Component
         $this->rule_clock_in = substr((string) $row->clock_in_time, 0, 5);
         $this->rule_work_hours = round(((int) ($row->work_duration_minutes ?? 480)) / 60, 1);
         $this->rule_break_minutes = (int) $row->break_duration_minutes;
+        $this->rule_break_earliest_mode = filled($row->break_earliest_time) ? 'fixed' : 'free';
+        $this->rule_break_earliest_time = filled($row->break_earliest_time)
+            ? substr((string) $row->break_earliest_time, 0, 5)
+            : '12:00';
         $this->rule_late_after = substr((string) ($row->late_after_time ?: $row->clock_in_time), 0, 5);
+        $this->rule_implementation_mode = $row->implementation_mode ?? WorkSchedule::IMPLEMENTATION_DEFAULT;
+        $this->rule_implementation_weekdays = $row->normalizedWeekdays();
+        $this->rule_implementation_month_days = $row->normalizedMonthDays() !== []
+            ? implode(', ', $row->normalizedMonthDays())
+            : '';
+        $this->rule_implementation_specific_dates = $row->normalizedSpecificDates();
+        $this->rule_implementation_specific_date_input = '';
+        $this->showRuleImpactConfirm = false;
+        $this->ruleImpactPreview = [];
+        $this->ruleSaveConfirmed = false;
         $this->showRuleModal = true;
     }
 
@@ -526,18 +603,152 @@ new #[Layout('layouts.app')] class extends Component
     {
         $this->showRuleModal = false;
         $this->editingScheduleId = null;
+        $this->showRuleImpactConfirm = false;
+        $this->ruleImpactPreview = [];
+        $this->ruleSaveConfirmed = false;
         $this->resetValidation();
+    }
+
+    public function addRuleSpecificDate(): void
+    {
+        $date = trim($this->rule_implementation_specific_date_input);
+        if (! preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            Toast::error('Pilih tanggal yang valid.', $this);
+
+            return;
+        }
+        if (! in_array($date, $this->rule_implementation_specific_dates, true)) {
+            $this->rule_implementation_specific_dates[] = $date;
+            sort($this->rule_implementation_specific_dates);
+        }
+        $this->rule_implementation_specific_date_input = '';
+    }
+
+    public function removeRuleSpecificDate(string $date): void
+    {
+        $this->rule_implementation_specific_dates = array_values(array_filter(
+            $this->rule_implementation_specific_dates,
+            fn (string $d) => $d !== $date,
+        ));
+    }
+
+    public function cancelRuleImpactConfirm(): void
+    {
+        $this->showRuleImpactConfirm = false;
+        $this->ruleImpactPreview = [];
+    }
+
+    public function confirmRuleSave(): void
+    {
+        $this->ruleSaveConfirmed = true;
+        $this->showRuleImpactConfirm = false;
+        $this->saveRule();
+        $this->ruleSaveConfirmed = false;
+    }
+
+    public function updatedRuleImplementationMode(string $value): void
+    {
+        if ($value !== WorkSchedule::IMPLEMENTATION_WEEKDAYS) {
+            $this->rule_implementation_weekdays = [];
+        }
+        if ($value !== WorkSchedule::IMPLEMENTATION_MONTH_DAYS) {
+            $this->rule_implementation_month_days = '';
+        }
+        if ($value !== WorkSchedule::IMPLEMENTATION_SPECIFIC_DATES) {
+            $this->rule_implementation_specific_dates = [];
+            $this->rule_implementation_specific_date_input = '';
+        }
     }
 
     public function saveRule(): void
     {
+        $calendar = app(ShiftCalendarService::class);
+        $monthDays = $this->parseMonthDaysInput($this->rule_implementation_month_days);
+        $weekdayValues = collect($this->rule_implementation_weekdays)
+            ->map(fn ($d) => (int) $d)
+            ->filter(fn (int $d) => $d >= 1 && $d <= 7)
+            ->unique()
+            ->values()
+            ->all();
+
         $data = $this->validate([
             'rule_name' => ['required', 'string', 'max:255'],
             'rule_clock_in' => ['required', 'date_format:H:i'],
             'rule_work_hours' => ['required', 'numeric', 'min:1', 'max:24'],
             'rule_break_minutes' => ['required', 'integer', 'min:0', 'max:480'],
+            'rule_break_earliest_mode' => ['required', 'in:free,fixed'],
+            'rule_break_earliest_time' => ['required_if:rule_break_earliest_mode,fixed', 'nullable', 'date_format:H:i'],
             'rule_late_after' => ['required', 'date_format:H:i'],
+            'rule_implementation_mode' => ['required', 'in:default,weekdays,month_days,specific_dates'],
+        ], [], [
+            'rule_name' => 'nama shift',
+            'rule_clock_in' => 'jam masuk',
+            'rule_work_hours' => 'jam kerja',
+            'rule_break_minutes' => 'istirahat',
+            'rule_late_after' => 'telat setelah',
+            'rule_implementation_mode' => 'implementasi shift',
         ]);
+
+        if ($data['rule_implementation_mode'] === WorkSchedule::IMPLEMENTATION_WEEKDAYS && $weekdayValues === []) {
+            $this->addError('rule_implementation_weekdays', 'Pilih minimal satu hari.');
+
+            return;
+        }
+
+        if ($data['rule_implementation_mode'] === WorkSchedule::IMPLEMENTATION_MONTH_DAYS && $monthDays === []) {
+            $this->addError('rule_implementation_month_days', 'Masukkan minimal satu tanggal (1–31).');
+
+            return;
+        }
+
+        if ($data['rule_implementation_mode'] === WorkSchedule::IMPLEMENTATION_SPECIFIC_DATES
+            && $this->rule_implementation_specific_dates === []) {
+            $this->addError('rule_implementation_specific_dates', 'Tambahkan minimal satu tanggal.');
+
+            return;
+        }
+
+        $weekdays = $data['rule_implementation_mode'] === WorkSchedule::IMPLEMENTATION_WEEKDAYS
+            ? $weekdayValues
+            : null;
+        $specificDates = $data['rule_implementation_mode'] === WorkSchedule::IMPLEMENTATION_SPECIFIC_DATES
+            ? array_values(array_unique($this->rule_implementation_specific_dates))
+            : null;
+        $monthDaysPayload = $data['rule_implementation_mode'] === WorkSchedule::IMPLEMENTATION_MONTH_DAYS
+            ? $monthDays
+            : null;
+
+        $existing = $this->editingScheduleId
+            ? WorkSchedule::find($this->editingScheduleId)
+            : null;
+
+        if ($existing && ! $this->ruleSaveConfirmed && $this->implementationRulesChanged(
+            $existing,
+            $data['rule_implementation_mode'],
+            $weekdays,
+            $monthDaysPayload,
+            $specificDates,
+        )) {
+            try {
+                $preview = $calendar->previewImplementationImpact(
+                    $this->editingScheduleId,
+                    $data['rule_implementation_mode'],
+                    $weekdays,
+                    $monthDaysPayload,
+                    $specificDates,
+                );
+                if ($preview['removed_entries'] > 0) {
+                    $this->ruleImpactPreview = $preview;
+                    $this->showRuleImpactConfirm = true;
+
+                    return;
+                }
+            } catch (\Throwable $e) {
+                Toast::error('Gagal memeriksa dampak perubahan: '.$e->getMessage(), $this);
+
+                return;
+            }
+        }
 
         $workMinutes = (int) round(((float) $data['rule_work_hours']) * 60);
         $clockOut = $this->calcClockOut($data['rule_clock_in'], $workMinutes, (int) $data['rule_break_minutes']);
@@ -547,20 +758,70 @@ new #[Layout('layouts.app')] class extends Component
             'clock_in_time' => $data['rule_clock_in'],
             'clock_out_time' => $clockOut,
             'break_duration_minutes' => (int) $data['rule_break_minutes'],
+            'break_earliest_time' => $data['rule_break_earliest_mode'] === 'fixed'
+                ? $data['rule_break_earliest_time']
+                : null,
             'work_duration_minutes' => $workMinutes,
             'late_after_time' => $data['rule_late_after'],
             'crosses_midnight' => $clockOut < $data['rule_clock_in'],
+            'implementation_mode' => $data['rule_implementation_mode'],
+            'implementation_weekdays' => $weekdays,
+            'implementation_month_days' => $monthDaysPayload,
+            'implementation_specific_dates' => $specificDates,
         ];
 
         if ($this->editingScheduleId) {
-            WorkSchedule::findOrFail($this->editingScheduleId)->update($payload);
-            Toast::success('Shift diperbarui.', $this);
+            $schedule = WorkSchedule::findOrFail($this->editingScheduleId);
+            $schedule->update($payload);
+            $impact = $calendar->cleanupInvalidScheduleEntries($schedule->fresh());
+            $message = 'Shift diperbarui.';
+            if ($impact['removed_entries'] > 0) {
+                $message .= ' '.$impact['removed_entries'].' penempatan kalender dihapus.';
+                if ($impact['unscheduled_employees'] !== []) {
+                    $names = implode(', ', array_slice($impact['unscheduled_employees'], 0, 5));
+                    $extra = count($impact['unscheduled_employees']) > 5 ? '…' : '';
+                    $message .= ' Karyawan tanpa jadwal lain: '.$names.$extra;
+                }
+            }
+            Toast::success($message, $this);
         } else {
             WorkSchedule::create($payload);
             Toast::success('Shift dibuat.', $this);
         }
 
         $this->closeRuleModal();
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function parseMonthDaysInput(string $input): array
+    {
+        $days = [];
+        foreach (preg_split('/[\s,;]+/', trim($input)) ?: [] as $part) {
+            if ($part === '') {
+                continue;
+            }
+            $n = (int) $part;
+            if ($n >= 1 && $n <= 31) {
+                $days[] = $n;
+            }
+        }
+
+        return array_values(array_unique($days));
+    }
+
+    private function implementationRulesChanged(
+        WorkSchedule $existing,
+        string $mode,
+        ?array $weekdays,
+        ?array $monthDays,
+        ?array $specificDates,
+    ): bool {
+        return ($existing->implementation_mode ?? WorkSchedule::IMPLEMENTATION_DEFAULT) !== $mode
+            || $existing->normalizedWeekdays() !== ($weekdays ?? [])
+            || $existing->normalizedMonthDays() !== ($monthDays ?? [])
+            || $existing->normalizedSpecificDates() !== ($specificDates ?? []);
     }
 
     public function toggleShiftEnabled(string $id): void
@@ -916,6 +1177,8 @@ new #[Layout('layouts.app')] class extends Component
         mixed $breakMinutes = null,
         ?string $forDate = null,
         bool $applyToWeekday = false,
+        ?string $breakEarliestMode = null,
+        ?string $breakEarliestTime = null,
     ): void {
         if (! $this->ensureCalendarEditMode()) {
             return;
@@ -927,6 +1190,7 @@ new #[Layout('layouts.app')] class extends Component
 
         $workValue = $this->normalizeDurationInput($workMinutes);
         $breakValue = $this->normalizeDurationInput($breakMinutes);
+        $breakEarliestValue = $this->normalizeBreakEarliestInput($breakEarliestMode, $breakEarliestTime);
         $this->dayMenuWorkMinutes = $workValue;
         $this->dayMenuBreakMinutes = $breakValue;
 
@@ -941,7 +1205,13 @@ new #[Layout('layouts.app')] class extends Component
         ));
 
         if ($applyToWeekday && $weekday > 0) {
-            $calendar->setDayDurationsForWeekday($datesInView, $weekday, $workValue, $breakValue);
+            $calendar->setDayDurationsForWeekday(
+                $datesInView,
+                $weekday,
+                $workValue,
+                $breakValue,
+                $breakEarliestValue,
+            );
         }
 
         foreach ($dates as $date) {
@@ -953,11 +1223,11 @@ new #[Layout('layouts.app')] class extends Component
                 && (int) Carbon::parse($date, AppTimezone::display())->dayOfWeekIso === $weekday;
 
             if (! $applyToWeekday || ! $isAnchorWeekday) {
-                $calendar->setDayDurations($date, $workValue, $breakValue);
+                $calendar->setDayDurations($date, $workValue, $breakValue, $breakEarliestValue);
             }
         }
 
-        $message = $workValue === null && $breakValue === null
+        $message = $workValue === null && $breakValue === null && $breakEarliestValue === null
             ? 'Override jam kerja / istirahat dikembalikan ke default.'
             : 'Jam kerja / istirahat hari disimpan.';
 
@@ -970,7 +1240,24 @@ new #[Layout('layouts.app')] class extends Component
         ?string $forDate = null,
         bool $applyToWeekday = false,
     ): void {
-        $this->saveDayDurations($calendar, null, null, $forDate, $applyToWeekday);
+        $this->saveDayDurations($calendar, null, null, $forDate, $applyToWeekday, 'free', null);
+    }
+
+    private function normalizeBreakEarliestInput(?string $mode, ?string $time): ?string
+    {
+        if ($mode === null) {
+            return null;
+        }
+
+        if ($mode !== 'fixed') {
+            return null;
+        }
+
+        if (! is_string($time) || ! preg_match('/^\d{2}:\d{2}$/', $time)) {
+            return null;
+        }
+
+        return $time;
     }
 
     public ?string $memberPanelEmployeeId = null;
@@ -1007,6 +1294,12 @@ new #[Layout('layouts.app')] class extends Component
             return;
         }
 
+        if (! $this->canManageMembersOnDate($this->memberPanelDate)) {
+            Toast::error('Hari yang sudah lewat tidak dapat diubah di mode baca.', $this);
+
+            return;
+        }
+
         if (! $this->ensureCanManageLiburOnDate($this->memberPanelDate)) {
             return;
         }
@@ -1021,6 +1314,12 @@ new #[Layout('layouts.app')] class extends Component
             return;
         }
 
+        if (! $this->canManageMembersOnDate($this->memberPanelDate)) {
+            Toast::error('Hari yang sudah lewat tidak dapat diubah di mode baca.', $this);
+
+            return;
+        }
+
         $calendar->setShiftOverride($employeeId, $this->memberPanelDate, $scheduleId, 'admin');
         Toast::success('Tukar shift (override tanggal) disimpan.', $this);
     }
@@ -1029,6 +1328,12 @@ new #[Layout('layouts.app')] class extends Component
     {
         $workDate = $date ?? $this->memberPanelDate;
         if ($this->calendarEditMode && ! $this->ensureCanEditCalendarDate($workDate)) {
+            return;
+        }
+
+        if (! $this->canManageMembersOnDate($workDate)) {
+            Toast::error('Hari yang sudah lewat tidak dapat diubah di mode baca.', $this);
+
             return;
         }
 
@@ -1743,6 +2048,8 @@ new #[Layout('layouts.app')] class extends Component
         holidayKind: 'routine',
         workMinutes: '',
         breakMinutes: '',
+        breakEarliestMode: 'free',
+        breakEarliestTime: '12:00',
         hasDurationOverride: false,
         applyScope: 'date',
         dateApplyLabel: '',
@@ -1756,6 +2063,8 @@ new #[Layout('layouts.app')] class extends Component
             holidayKind: payload.holidayKind || 'routine',
             workMinutes: payload.workMinutes ?? '',
             breakMinutes: payload.breakMinutes ?? '',
+            breakEarliestMode: payload.breakEarliestMode || 'free',
+            breakEarliestTime: payload.breakEarliestTime || '12:00',
             hasDurationOverride: !!payload.hasDurationOverride,
             applyScope: 'date',
             dateApplyLabel: payload.dateApplyLabel || payload.label,
@@ -1818,30 +2127,88 @@ new #[Layout('layouts.app')] class extends Component
                     </div>
 
                     <div class="overflow-x-auto border border-gray-200 rounded-lg">
-                        <table class="min-w-full divide-y divide-gray-200 text-sm">
+                        <table class="w-full min-w-[1180px] table-fixed divide-y divide-gray-200 text-sm">
+                            <colgroup>
+                                <col style="width: 17%">
+                                <col style="width: 20%">
+                                <col style="width: 7%">
+                                <col style="width: 11%">
+                                <col style="width: 7%">
+                                <col style="width: 8%">
+                                <col style="width: 10%">
+                                <col style="width: 9%">
+                                <col style="width: 5%">
+                                <col style="width: 6%">
+                            </colgroup>
                             <thead class="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                 <tr>
-                                    <th class="px-4 py-2.5">Nama</th>
+                                    <th class="px-4 py-2.5">Nama Shift</th>
+                                    <th class="px-4 py-2.5">Implementasi</th>
                                     <th class="px-4 py-2.5">Masuk</th>
+                                    <th class="px-4 py-2.5">Terlambat Setelah</th>
                                     <th class="px-4 py-2.5">Pulang</th>
-                                    <th class="px-4 py-2.5">Istirahat default</th>
-                                    <th class="px-4 py-2.5">Jam kerja default</th>
-                                    <th class="px-4 py-2.5">Telat setelah</th>
+                                    <th class="px-4 py-2.5">Jam Kerja</th>
+                                    <th class="px-4 py-2.5">Durasi Istirahat</th>
+                                    <th class="px-4 py-2.5">Jam Istirahat</th>
                                     <th class="px-4 py-2.5">Aktif</th>
                                     <th class="px-4 py-2.5 text-right">Aksi</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100 bg-white">
                                 @forelse ($schedules as $row)
+                                    @php
+                                        $specificDateLabels = $row->implementationSpecificDateLabels();
+                                    @endphp
                                     <tr wire:key="rule-{{ $row->id }}" @class(['opacity-60' => ! $row->is_enabled])>
-                                        <td class="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">
+                                        <td class="px-4 py-3 font-medium text-gray-900 whitespace-nowrap truncate">
                                             {{ $row->name }}
                                         </td>
+                                        <td class="px-4 py-3 text-gray-700 whitespace-nowrap">
+                                            @if (count($specificDateLabels) > 1)
+                                                <span
+                                                    x-data="{
+                                                        showImplementationTip: false,
+                                                        implementationTipStyle: '',
+                                                        showTip() {
+                                                            const r = this.$el.getBoundingClientRect();
+                                                            const left = Math.max(8, Math.min(r.left, window.innerWidth - 288));
+                                                            this.implementationTipStyle = `left:${left}px;top:${r.top - 4}px;transform:translateY(-100%)`;
+                                                            this.showImplementationTip = true;
+                                                        },
+                                                    }"
+                                                    class="inline-block cursor-help border-b border-dotted border-gray-400"
+                                                    tabindex="0"
+                                                    @mouseenter="showTip()"
+                                                    @mouseleave="showImplementationTip = false"
+                                                    @focus="showTip()"
+                                                    @blur="showImplementationTip = false"
+                                                >
+                                                    <template x-teleport="body">
+                                                        <span
+                                                            x-show="showImplementationTip"
+                                                            role="tooltip"
+                                                            :style="implementationTipStyle"
+                                                            class="pointer-events-none fixed z-[9999] max-w-[280px] rounded-md bg-gray-900 px-2.5 py-1.5 text-xs font-medium leading-snug text-white shadow-lg whitespace-normal"
+                                                        >
+                                                            @foreach ($specificDateLabels as $specificDateLabel)
+                                                                <span class="block whitespace-nowrap">{{ $specificDateLabel }}</span>
+                                                            @endforeach
+                                                        </span>
+                                                    </template>
+                                                    {{ $row->implementationSummary() }}
+                                                </span>
+                                            @else
+                                                {{ $row->implementationSummary() }}
+                                            @endif
+                                        </td>
                                         <td class="px-4 py-3 font-mono tabular-nums">{{ substr((string) $row->clock_in_time, 0, 5) }}</td>
-                                        <td class="px-4 py-3 font-mono tabular-nums">{{ substr((string) $row->clock_out_time, 0, 5) }}</td>
-                                        <td class="px-4 py-3">{{ $row->break_duration_minutes }} m</td>
-                                        <td class="px-4 py-3">{{ (($row->work_duration_minutes ?? 480) / 60) }} jam</td>
                                         <td class="px-4 py-3 font-mono tabular-nums">{{ substr((string) ($row->late_after_time ?: $row->clock_in_time), 0, 5) }}</td>
+                                        <td class="px-4 py-3 font-mono tabular-nums">{{ substr((string) $row->clock_out_time, 0, 5) }}</td>
+                                        <td class="px-4 py-3">{{ (($row->work_duration_minutes ?? 480) / 60) }} jam</td>
+                                        <td class="px-4 py-3">{{ $row->break_duration_minutes }} m</td>
+                                        <td class="px-4 py-3 font-mono tabular-nums">
+                                            {{ filled($row->break_earliest_time) ? substr((string) $row->break_earliest_time, 0, 5) : 'Bebas' }}
+                                        </td>
                                         <td class="px-4 py-3">
                                             <button type="button"
                                                 wire:click="toggleShiftEnabled('{{ $row->id }}')"
@@ -1866,7 +2233,7 @@ new #[Layout('layouts.app')] class extends Component
                                         </td>
                                     </tr>
                                 @empty
-                                    <tr><td colspan="8" class="px-4 py-8 text-center text-gray-500">Belum ada shift. Buat shift pertama.</td></tr>
+                                    <tr><td colspan="10" class="px-4 py-8 text-center text-gray-500">Belum ada shift. Buat shift pertama.</td></tr>
                                 @endforelse
                             </tbody>
                         </table>
@@ -2165,6 +2532,9 @@ new #[Layout('layouts.app')] class extends Component
                                             if (filled($cell['break_duration_minutes'])) {
                                                 $durationOverrideLines[] = 'Istirahat: '.(int) $cell['break_duration_minutes'].' menit';
                                             }
+                                            if (filled($cell['break_earliest_time'])) {
+                                                $durationOverrideLines[] = 'Mulai istirahat: '.$cell['break_earliest_time'];
+                                            }
                                             $dayMenuPayload = [
                                                 'date' => $cell['date'],
                                                 'label' => $cellCarbon->translatedFormat('d M Y'),
@@ -2174,8 +2544,11 @@ new #[Layout('layouts.app')] class extends Component
                                                 'holidayKind' => $cell['holiday_kind'] ?? 'routine',
                                                 'workMinutes' => $cell['work_duration_minutes'],
                                                 'breakMinutes' => $cell['break_duration_minutes'],
+                                                'breakEarliestMode' => filled($cell['break_earliest_time']) ? 'fixed' : 'free',
+                                                'breakEarliestTime' => $cell['break_earliest_time'] ?? '12:00',
                                                 'hasDurationOverride' => filled($cell['work_duration_minutes'])
-                                                    || filled($cell['break_duration_minutes']),
+                                                    || filled($cell['break_duration_minutes'])
+                                                    || filled($cell['break_earliest_time']),
                                             ];
                                             $cellInRepeatingAnchor = ! $repeatingPatternActive
                                                 || (
@@ -2188,7 +2561,9 @@ new #[Layout('layouts.app')] class extends Component
                                                 && ($calendarViewMode !== 'month' || ! empty($cell['in_month']))
                                                 && $cellInRepeatingAnchor;
                                             $hasDurationOverride = filled($cell['work_duration_minutes'])
-                                                || filled($cell['break_duration_minutes']);
+                                                || filled($cell['break_duration_minutes'])
+                                                || filled($cell['break_earliest_time']);
+                                            $cellMemberManageable = $this->canManageMembersOnDate($cell['date']);
                                         @endphp
                                         <div wire:key="cell-{{ $cell['date'] }}"
                                             style="padding: 0.5rem; gap: 0.5rem"
@@ -2321,6 +2696,9 @@ new #[Layout('layouts.app')] class extends Component
                                             @else
                                                 <div class="flex-1 flex flex-col min-w-0" style="gap: 0.5rem">
                                                     @foreach ($board['schedules'] as $sched)
+                                                        @if (! in_array($sched->id, $cell['visible_schedule_ids'] ?? [], true))
+                                                            @continue
+                                                        @endif
                                                         @php
                                                             $chips = $cell['chips'][$sched->id] ?? [];
                                                             $scheduleHoursLabel = substr((string) $sched->clock_in_time, 0, 5).' ~ '.substr((string) $sched->clock_out_time, 0, 5);
@@ -2384,7 +2762,11 @@ new #[Layout('layouts.app')] class extends Component
                                                                                 wire:click="openEmployeePanel('{{ $cell['date'] }}', '{{ $chip['employee_id'] }}')"
                                                                             @endif
                                                                             class="flex-1 min-w-0 truncate text-left p-0 bg-transparent border-0 font-semibold text-white"
-                                                                            title="{{ $chipKind === 'group' ? 'Klik: anggota · Drag: pindah' : ($chipKind === 'swap_pending' ? 'Menunggu persetujuan tukar shift' : 'Klik: pengaturan · Drag: pindah') }}">
+                                                                            title="{{ $chipKind === 'group'
+                                                                                ? ($cellMemberManageable ? 'Klik: anggota · Drag: pindah' : 'Lihat anggota group')
+                                                                                : ($chipKind === 'swap_pending'
+                                                                                    ? 'Menunggu persetujuan tukar shift'
+                                                                                    : ($cellMemberManageable ? 'Klik: pengaturan · Drag: pindah' : 'Lihat detail')) }}">
                                                                             {{ $chip['name'] }}
                                                                         </button>
                                                                         @if ($chipKind === 'group')
@@ -2426,7 +2808,7 @@ new #[Layout('layouts.app')] class extends Component
                                                     <div class="border-t border-gray-100 flex flex-col min-w-0 max-h-24 overflow-y-auto" style="gap: 0.5rem; padding-top: 0.5rem">
                                                         @foreach ($cell['foot'] as $f)
                                                             <div class="flex w-full min-w-0 items-center justify-between text-[9px]" style="gap: 0.5rem">
-                                                                @if (! empty($f['employee_id']) && (! $calendarEditMode || $cellEditable))
+                                                                @if (! empty($f['employee_id']) && $cellMemberManageable)
                                                                     <button type="button"
                                                                         wire:click="openEmployeePanel('{{ $cell['date'] }}', '{{ $f['employee_id'] }}')"
                                                                         class="truncate text-left text-gray-700 hover:underline"
@@ -2437,7 +2819,7 @@ new #[Layout('layouts.app')] class extends Component
                                                                     <span class="truncate text-gray-700">{{ $f['name'] }}</span>
                                                                 @endif
                                                                 @if (! empty($f['employee_id']))
-                                                                    @if (! $calendarEditMode || $cellEditable)
+                                                                    @if ($cellMemberManageable)
                                                                         <button type="button"
                                                                             wire:click="openEmployeePanel('{{ $cell['date'] }}', '{{ $f['employee_id'] }}')"
                                                                             title="Klik untuk mengatur libur / sif"
@@ -2566,11 +2948,22 @@ new #[Layout('layouts.app')] class extends Component
     {{-- Rule modal --}}
     @if ($showRuleModal)
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-5 space-y-4">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden">
+                <div class="p-5 space-y-4 overflow-y-auto flex-1">
                 <h3 class="text-lg font-semibold">{{ $editingScheduleId ? 'Edit Shift' : 'Buat Shift' }}</h3>
+                @if ($errors->any())
+                    <div class="rounded-md bg-red-50 border border-red-100 px-3 py-2 text-sm text-red-800">
+                        <p class="font-medium">Periksa isian berikut:</p>
+                        <ul class="mt-1 list-disc list-inside space-y-0.5">
+                            @foreach ($errors->all() as $error)
+                                <li>{{ $error }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
                 <div class="space-y-3">
                     <div>
-                        <label class="block text-sm text-gray-600 mb-1">Nama</label>
+                        <label class="block text-sm text-gray-600 mb-1">Nama Shift</label>
                         <input type="text" wire:model="rule_name" class="w-full rounded-md border border-gray-300 bg-white text-sm text-gray-900">
                         @error('rule_name') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                     </div>
@@ -2594,11 +2987,110 @@ new #[Layout('layouts.app')] class extends Component
                             <input type="number" wire:model="rule_break_minutes" class="w-full rounded-md border border-gray-300 bg-white text-sm text-gray-900">
                         </div>
                     </div>
+                    <div>
+                        <p class="block text-sm text-gray-600 mb-2">Jam Istirahat</p>
+                        <div class="flex flex-col gap-3">
+                            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                                <input type="radio" value="free" wire:model.live="rule_break_earliest_mode" class="border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                Bebas
+                            </label>
+                            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                                <input type="radio" value="fixed" wire:model.live="rule_break_earliest_mode" class="border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                Tentukan jam istirahat dimulai
+                            </label>
+                        </div>
+                        @if ($rule_break_earliest_mode === 'fixed')
+                            <input type="time" wire:model="rule_break_earliest_time" class="mt-2 w-full rounded-md border border-gray-300 bg-white text-sm text-gray-900">
+                            @error('rule_break_earliest_time') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                        @endif
+                    </div>
+                    <div class="border-t border-gray-200 pt-3">
+                        <p class="block text-sm text-gray-600 mb-2">Implementasi Shift</p>
+                        <div class="flex flex-wrap gap-x-4 gap-y-2">
+                            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                                <input type="radio" value="default" wire:model.live="rule_implementation_mode" class="border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                Harian
+                            </label>
+                            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                                <input type="radio" value="weekdays" wire:model.live="rule_implementation_mode" class="border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                Hari Khusus
+                            </label>
+                            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                                <input type="radio" value="month_days" wire:model.live="rule_implementation_mode" class="border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                Setiap Tanggal
+                            </label>
+                            <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                                <input type="radio" value="specific_dates" wire:model.live="rule_implementation_mode" class="border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                Hanya Tanggal
+                            </label>
+                        </div>
+                        @if ($rule_implementation_mode === 'weekdays')
+                            <div class="mt-3 grid grid-cols-2 gap-2">
+                                @foreach ([1 => 'Senin', 2 => 'Selasa', 3 => 'Rabu', 4 => 'Kamis', 5 => 'Jumat', 6 => 'Sabtu', 7 => 'Minggu'] as $iso => $label)
+                                    <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                                        <input type="checkbox" wire:model="rule_implementation_weekdays" value="{{ $iso }}" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                        {{ $label }}
+                                    </label>
+                                @endforeach
+                            </div>
+                            @error('rule_implementation_weekdays') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                        @elseif ($rule_implementation_mode === 'month_days')
+                            <div class="mt-3">
+                                <label class="block text-xs text-gray-500 mb-1">Angka tanggal (1–31), pisahkan koma</label>
+                                <input type="text" wire:model="rule_implementation_month_days" placeholder="mis. 15 atau 1, 15, 31" class="w-full rounded-md border border-gray-300 bg-white text-sm text-gray-900">
+                                <p class="text-xs text-gray-500 mt-1">Tanggal 31 hanya berlaku di bulan yang memiliki tanggal tersebut.</p>
+                                @error('rule_implementation_month_days') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                            </div>
+                        @elseif ($rule_implementation_mode === 'specific_dates')
+                            <div class="mt-3 space-y-2">
+                                <div class="flex items-center gap-2">
+                                    <input type="date" wire:model="rule_implementation_specific_date_input" class="flex-1 rounded-md border border-gray-300 bg-white text-sm text-gray-900">
+                                    <button type="button" wire:click="addRuleSpecificDate" class="shrink-0 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">Tambah</button>
+                                </div>
+                                @error('rule_implementation_specific_dates') <p class="text-xs text-red-600">{{ $message }}</p> @enderror
+                                @if ($rule_implementation_specific_dates !== [])
+                                    <ul class="space-y-1">
+                                        @foreach ($rule_implementation_specific_dates as $specificDate)
+                                            <li wire:key="rule-specific-date-{{ $specificDate }}" class="flex items-center justify-between rounded-md bg-gray-50 px-2 py-1 text-sm">
+                                                <span>{{ \Illuminate\Support\Carbon::parse($specificDate, \App\Support\AppTimezone::display())->translatedFormat('l, d M Y') }}</span>
+                                                <button type="button" wire:click="removeRuleSpecificDate('{{ $specificDate }}')" class="text-red-600 hover:text-red-800 text-xs">Hapus</button>
+                                            </li>
+                                        @endforeach
+                                    </ul>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
                     <p class="text-xs text-gray-500">Jam pulang dihitung otomatis. Override jam kerja/istirahat per tanggal di Jadwal Shift.</p>
                 </div>
-                <div class="flex justify-end gap-2">
+                </div>
+                <div class="flex justify-end gap-2 p-5 border-t border-gray-200 bg-gray-50 shrink-0">
                     <button type="button" wire:click="closeRuleModal" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Batal</button>
-                    <button type="button" wire:click="saveRule" class="inline-flex items-center rounded-md bg-gray-800 border border-transparent px-4 py-2 text-xs font-semibold text-white uppercase tracking-widest hover:bg-gray-700 transition">Simpan</button>
+                    <button type="button" wire:click="saveRule" wire:loading.attr="disabled" wire:target="saveRule,confirmRuleSave" class="inline-flex items-center rounded-md bg-gray-800 border border-transparent px-4 py-2 text-xs font-semibold text-white uppercase tracking-widest hover:bg-gray-700 transition disabled:opacity-50">
+                        <span wire:loading.remove wire:target="saveRule,confirmRuleSave">Simpan</span>
+                        <span wire:loading wire:target="saveRule,confirmRuleSave">Menyimpan…</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    @endif
+
+    @if ($showRuleImpactConfirm)
+        <div class="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-gray-900/50">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-5 space-y-4">
+                <h3 class="text-lg font-semibold text-gray-900">Konfirmasi perubahan implementasi</h3>
+                <p class="text-sm text-gray-600">
+                    {{ $ruleImpactPreview['removed_entries'] ?? 0 }} penempatan kalender akan dihapus karena tidak lagi sesuai aturan implementasi shift.
+                </p>
+                @if (! empty($ruleImpactPreview['unscheduled_employees']))
+                    <div class="rounded-md bg-amber-50 border border-amber-100 px-3 py-2 text-sm text-amber-900">
+                        <p class="font-medium">Karyawan tanpa jadwal lain:</p>
+                        <p class="mt-1">{{ implode(', ', $ruleImpactPreview['unscheduled_employees']) }}</p>
+                    </div>
+                @endif
+                <div class="flex justify-end gap-2">
+                    <button type="button" wire:click="cancelRuleImpactConfirm" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Batal</button>
+                    <button type="button" wire:click="confirmRuleSave" class="inline-flex items-center rounded-md bg-red-600 px-4 py-2 text-xs font-semibold text-white uppercase tracking-widest hover:bg-red-700">Lanjutkan</button>
                 </div>
             </div>
         </div>
@@ -2827,8 +3319,25 @@ new #[Layout('layouts.app')] class extends Component
                                     <input type="number" x-model="dayMenu.workMinutes" placeholder="default" class="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm placeholder:text-gray-400">
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Istirahat (menit)</label>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Durasi istirahat (menit)</label>
                                     <input type="number" x-model="dayMenu.breakMinutes" placeholder="default" class="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm placeholder:text-gray-400">
+                                </div>
+                                <div>
+                                    <p class="block text-sm font-medium text-gray-700 mb-2">Jam Istirahat</p>
+                                    <div class="flex flex-col gap-3">
+                                        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                                            <input type="radio" value="free" x-model="dayMenu.breakEarliestMode" class="border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                            Bebas
+                                        </label>
+                                        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
+                                            <input type="radio" value="fixed" x-model="dayMenu.breakEarliestMode" class="border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                            Tentukan jam istirahat dimulai
+                                        </label>
+                                    </div>
+                                    <div x-show="dayMenu.breakEarliestMode === 'fixed'" x-cloak class="mt-2">
+                                        <input type="time" x-model="dayMenu.breakEarliestTime" class="block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+                                    </div>
+                                    <p class="text-xs text-gray-500 mt-1">Bebas mengikuti default shift. Scan istirahat sebelum jam minimum ditolak di mesin.</p>
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Terapkan ke :</label>
@@ -2869,7 +3378,7 @@ new #[Layout('layouts.app')] class extends Component
                         type="button"
                         x-show="!dayMenu.isHoliday"
                         x-cloak
-                        @click="runDayMenuAction(() => $wire.saveDayDurations(dayMenu.workMinutes, dayMenu.breakMinutes, dayMenu.date, dayMenu.applyScope === 'weekday'))"
+                        @click="runDayMenuAction(() => $wire.saveDayDurations(dayMenu.workMinutes, dayMenu.breakMinutes, dayMenu.date, dayMenu.applyScope === 'weekday', dayMenu.breakEarliestMode, dayMenu.breakEarliestTime))"
                         class="inline-flex items-center px-4 py-2 bg-gray-800 border border-transparent rounded-md font-semibold text-xs text-white uppercase tracking-widest hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition"
                     >
                         SIMPAN
@@ -2905,7 +3414,7 @@ new #[Layout('layouts.app')] class extends Component
                         @php
                             $isLibur = in_array((string) $m['id'], $memberPanelLiburIds, true);
                             $ov = $memberPanelOverrides[(string) $m['id']] ?? null;
-                            $canEditMember = ! $calendarEditMode || $this->isCalendarDateEditable($memberPanelDate);
+                            $canEditMember = $this->canManageMembersOnDate($memberPanelDate);
                         @endphp
                         <li class="py-3 space-y-3.5" wire:key="member-panel-{{ $m['id'] }}">
                             <div class="flex items-start gap-2 min-w-0">

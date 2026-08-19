@@ -117,6 +117,24 @@ class AttendanceEvaluateService
     array $mode,
     ResolvedShiftDay $resolved,
   ): array {
+    $earliest = $resolved->effectiveBreakEarliestTime();
+    if ($earliest !== null) {
+      $local = AppTimezone::toDisplay($eventTime);
+      $eventMinutes = (int) $local->format('G') * 60 + (int) $local->format('i');
+      $earliestMinutes = $this->timeToMinutes($earliest);
+
+      if ($this->isBeforeBreakEarliest($eventMinutes, $earliestMinutes, $resolved->schedule)) {
+        return [
+          'allowed' => false,
+          'level' => 'rejected',
+          'bar_text' => app(AttendanceScheduleGuard::class)->breakEarliestRejectLabel(),
+          'day_kind' => $resolved->kind,
+          'schedule_name' => $resolved->schedule?->name,
+          'is_work_day' => true,
+        ];
+      }
+    }
+
     if ($breakMinutes <= 0) {
       return $this->okResult($mode, $resolved, $resolved->schedule);
     }
@@ -290,6 +308,30 @@ class AttendanceEvaluateService
     }
 
     return max(0, $clockOutMinutes - $eventMinutes);
+  }
+
+  private function isBeforeBreakEarliest(int $eventMinutes, int $earliestMinutes, ?WorkSchedule $schedule): bool
+  {
+    if (! $schedule || ! $schedule->crosses_midnight) {
+      return $eventMinutes < $earliestMinutes;
+    }
+
+    $clockInMinutes = $this->timeToMinutes(substr((string) $schedule->clock_in_time, 0, 5));
+    $clockOutMinutes = $this->timeToMinutes(substr((string) $schedule->clock_out_time, 0, 5));
+
+    if ($earliestMinutes < $clockInMinutes) {
+      if ($eventMinutes >= $clockInMinutes) {
+        return true;
+      }
+
+      if ($eventMinutes < $clockOutMinutes) {
+        return $eventMinutes < $earliestMinutes;
+      }
+
+      return false;
+    }
+
+    return $eventMinutes < $earliestMinutes;
   }
 
   private function timeToMinutes(string $time): int

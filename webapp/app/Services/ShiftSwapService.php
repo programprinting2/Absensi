@@ -24,6 +24,11 @@ class ShiftSwapService
             throw new InvalidArgumentException('Rule shift tujuan tidak valid.');
         }
 
+        $targetSchedule = WorkSchedule::query()->enabled()->findOrFail($toScheduleId);
+        if (! $targetSchedule->isImplementedOnDate($workDate)) {
+            throw new InvalidArgumentException('Shift tujuan tidak berlaku di tanggal tersebut.');
+        }
+
         $pending = ShiftSwapRequest::query()
             ->where('employee_id', $employee->id)
             ->whereDate('work_date', $workDate)

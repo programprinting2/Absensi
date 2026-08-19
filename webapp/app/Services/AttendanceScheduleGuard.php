@@ -38,4 +38,9 @@ class AttendanceScheduleGuard
             default => 'TIDAK ADA JADWAL',
         };
     }
+
+    public function breakEarliestRejectLabel(): string
+    {
+        return 'ISTIRAHAT BELUM WAKTUNYA';
+    }
 }
