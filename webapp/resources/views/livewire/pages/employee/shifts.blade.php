@@ -3,6 +3,7 @@
 use App\Models\Employee;
 use App\Models\ShiftEmployeeLibur;
 use App\Models\ShiftEmployeeShiftOverride;
+use App\Models\ShiftGroup;
 use App\Models\ShiftSwapRequest;
 use App\Models\WorkSchedule;
 use App\Services\ShiftCalendarService;
@@ -274,6 +275,7 @@ new #[Layout('layouts.app')] class extends Component
         $memberPanelMembers = [];
         $memberPanelLiburIds = [];
         $memberPanelOverrides = [];
+        $memberPanelGroupName = '';
         if ($employee && $this->showMemberPanel) {
             if (filled($this->memberPanelEmployeeId)) {
                 $emp = Employee::find($this->memberPanelEmployeeId);
@@ -283,6 +285,8 @@ new #[Layout('layouts.app')] class extends Component
                     'employee_code' => $emp->employee_code,
                 ]] : [];
             } elseif ($this->memberPanelGroupId !== '') {
+                $memberPanelGroup = ShiftGroup::query()->find($this->memberPanelGroupId);
+                $memberPanelGroupName = $memberPanelGroup?->name ?? '';
                 $memberPanelMembers = $groupService->membersForCalendarDate($this->memberPanelGroupId, $this->memberPanelDate);
             }
             $memberPanelLiburIds = ShiftEmployeeLibur::query()
@@ -318,6 +322,7 @@ new #[Layout('layouts.app')] class extends Component
             'memberPanelMembers' => $memberPanelMembers,
             'memberPanelLiburIds' => $memberPanelLiburIds,
             'memberPanelOverrides' => $memberPanelOverrides,
+            'memberPanelGroupName' => $memberPanelGroupName,
         ];
     }
 }; ?>
@@ -577,7 +582,11 @@ new #[Layout('layouts.app')] class extends Component
                                                                                                         class="shrink-0"
                                                                                                     />
                                                                                                 @elseif ($chipKind === 'override' && !empty($chip['employee_id']))
-                                                                                                    <span class="shrink-0 text-[8px] uppercase opacity-80 leading-none">ovr</span>
+                                                                                                    <span class="shrink-0 inline-flex items-center justify-center opacity-90" title="Tukar shift">
+                                                                                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                                                                            <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+                                                                                                        </svg>
+                                                                                                    </span>
                                                                                                 @endif
                                                                                             </div>
                                                                                         @empty
@@ -727,35 +736,49 @@ new #[Layout('layouts.app')] class extends Component
 
     @if ($showMemberPanel)
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-5 space-y-4 max-h-[85vh] overflow-y-auto">
-                <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-semibold">
-                        @if (filled($memberPanelEmployeeId) && count($memberPanelMembers))
-                            {{ $memberPanelMembers[0]['full_name'] }} · {{ $memberPanelDate }}
-                        @else
-                            Anggota group · {{ $memberPanelDate }}
-                        @endif
-                    </h3>
-                    <button type="button" wire:click="closeMemberPanel" class="text-gray-500 text-sm">Tutup</button>
+            <div class="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden">
+                <div class="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
+                    <div class="min-w-0">
+                        <h3 class="text-base font-semibold text-gray-900 truncate">
+                            @if (filled($memberPanelEmployeeId) && count($memberPanelMembers))
+                                {{ $memberPanelMembers[0]['full_name'] }}
+                            @elseif ($memberPanelGroupName !== '')
+                                {{ $memberPanelGroupName }}
+                            @else
+                                Anggota
+                            @endif
+                        </h3>
+                        <p class="text-xs text-gray-500 mt-0.5 tabular-nums">
+                            {{ \Illuminate\Support\Carbon::parse($memberPanelDate, \App\Support\AppTimezone::display())->translatedFormat('l, d M Y') }}
+                        </p>
+                    </div>
+                    <button type="button" wire:click="closeMemberPanel" class="shrink-0 rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50">Tutup</button>
                 </div>
-                <ul class="divide-y divide-gray-100">
+                <ul class="divide-y divide-gray-100 overflow-y-auto px-5 py-2">
                     @forelse ($memberPanelMembers as $m)
                         @php
                             $isLibur = in_array((string) $m['id'], $memberPanelLiburIds, true);
                             $ov = $memberPanelOverrides[(string) $m['id']] ?? null;
                         @endphp
-                        <li class="py-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                                <div class="font-medium text-gray-900 text-sm">{{ $m['full_name'] }}</div>
+                        <li class="py-3" wire:key="member-panel-{{ $m['id'] }}">
+                            <div class="flex items-start gap-2 min-w-0">
+                                <p class="flex-1 min-w-0 text-sm font-medium text-gray-900 truncate" title="{{ $m['full_name'] }}">
+                                    {{ $m['full_name'] }}
+                                </p>
                                 @if ($isLibur)
-                                    <span class="text-xs text-slate-600">Libur Rutin</span>
+                                    <span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 whitespace-nowrap">Libur Rutin</span>
                                 @elseif ($ov)
-                                    <span class="text-xs text-indigo-700">Override → {{ $ov->schedule?->name }}</span>
+                                    <span class="shrink-0 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 max-w-[45%]" title="Tukar shift → {{ $ov->schedule?->name }}">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                            <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+                                        </svg>
+                                        <span class="truncate">{{ $ov->schedule?->name }}</span>
+                                    </span>
                                 @endif
                             </div>
                         </li>
                     @empty
-                        <li class="py-6 text-center text-sm text-gray-500">Tidak ada anggota aktif di group ini.</li>
+                        <li class="py-8 text-center text-sm text-gray-500">Tidak ada anggota aktif di group ini.</li>
                     @endforelse
                 </ul>
             </div>

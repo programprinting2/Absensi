@@ -941,8 +941,7 @@ new #[Layout('layouts.app')] class extends Component
         ));
 
         if ($applyToWeekday && $weekday > 0) {
-            $calendar->setWorkDurationForWeekday($datesInView, $weekday, $workValue);
-            $calendar->setBreakDurationForWeekday($datesInView, $weekday, $breakValue);
+            $calendar->setDayDurationsForWeekday($datesInView, $weekday, $workValue, $breakValue);
         }
 
         foreach ($dates as $date) {
@@ -954,8 +953,7 @@ new #[Layout('layouts.app')] class extends Component
                 && (int) Carbon::parse($date, AppTimezone::display())->dayOfWeekIso === $weekday;
 
             if (! $applyToWeekday || ! $isAnchorWeekday) {
-                $calendar->setDayWorkDuration($date, $workValue);
-                $calendar->setDayBreakDuration($date, $breakValue);
+                $calendar->setDayDurations($date, $workValue, $breakValue);
             }
         }
 
@@ -1024,7 +1022,7 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         $calendar->setShiftOverride($employeeId, $this->memberPanelDate, $scheduleId, 'admin');
-        Toast::success('Tukar sif (override tanggal) disimpan.', $this);
+        Toast::success('Tukar shift (override tanggal) disimpan.', $this);
     }
 
     public function clearEmployeeShiftOverride(string $employeeId, ShiftCalendarService $calendar, ?string $date = null): void
@@ -1035,7 +1033,7 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         $calendar->clearShiftOverride($employeeId, $workDate);
-        Toast::success('Override sif dibatalkan.', $this);
+        Toast::success('Tukar shift dibatalkan.', $this);
     }
 
     public function saveTemplate(ShiftCalendarService $calendar): void
@@ -1278,7 +1276,7 @@ new #[Layout('layouts.app')] class extends Component
         try {
             $req = ShiftSwapRequest::query()->findOrFail($id);
             $swaps->approve($req, auth()->user());
-            Toast::success('Tukar sif disetujui.', $this);
+            Toast::success('Tukar shift disetujui.', $this);
         } catch (\RuntimeException $e) {
             Toast::error($e->getMessage(), $this);
         }
@@ -1289,7 +1287,7 @@ new #[Layout('layouts.app')] class extends Component
         try {
             $req = ShiftSwapRequest::query()->findOrFail($id);
             $swaps->reject($req, auth()->user());
-            Toast::success('Tukar sif ditolak.', $this);
+            Toast::success('Tukar shift ditolak.', $this);
         } catch (\RuntimeException $e) {
             Toast::error($e->getMessage(), $this);
         }
@@ -1417,6 +1415,7 @@ new #[Layout('layouts.app')] class extends Component
         $memberPanelMembers = [];
         $memberPanelLiburIds = [];
         $memberPanelOverrides = [];
+        $memberPanelGroupName = '';
         if ($isCalendar && $this->showMemberPanel) {
             if (filled($this->memberPanelEmployeeId)) {
                 $emp = Employee::find($this->memberPanelEmployeeId);
@@ -1426,6 +1425,8 @@ new #[Layout('layouts.app')] class extends Component
                     'employee_code' => $emp->employee_code,
                 ]] : [];
             } elseif ($this->memberPanelGroupId !== '') {
+                $memberPanelGroup = ShiftGroup::query()->find($this->memberPanelGroupId);
+                $memberPanelGroupName = $memberPanelGroup?->name ?? '';
                 $memberPanelMembers = $groupService->membersForCalendarDate($this->memberPanelGroupId, $this->memberPanelDate);
             }
             $memberPanelLiburIds = \App\Models\ShiftEmployeeLibur::query()
@@ -1521,6 +1522,7 @@ new #[Layout('layouts.app')] class extends Component
             'memberPanelMembers' => $memberPanelMembers,
             'memberPanelLiburIds' => $memberPanelLiburIds,
             'memberPanelOverrides' => $memberPanelOverrides,
+            'memberPanelGroupName' => $memberPanelGroupName,
             'weekStarts' => $weekStarts,
             'weekdayLabels' => ['SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT', 'SABTU', 'MINGGU'],
             'pendingSwaps' => $pendingSwaps,
@@ -1789,7 +1791,7 @@ new #[Layout('layouts.app')] class extends Component
                         'rules' => 'Shift',
                         'groups' => 'Group',
                         'calendar' => 'Jadwal Shift',
-                        'swaps' => 'Tukar Sif'.($pendingSwapCount ? ' ('.$pendingSwapCount.')' : ''),
+                        'swaps' => 'Tukar Shift'.($pendingSwapCount ? ' ('.$pendingSwapCount.')' : ''),
                     ] as $key => $label)
                         <button type="button" wire:click="$set('tab', '{{ $key }}')"
                             @class([
@@ -1834,9 +1836,6 @@ new #[Layout('layouts.app')] class extends Component
                                     <tr wire:key="rule-{{ $row->id }}" @class(['opacity-60' => ! $row->is_enabled])>
                                         <td class="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">
                                             {{ $row->name }}
-                                            @if ($row->crosses_midnight)
-                                                <span class="ml-1 text-xs text-amber-700">overnight</span>
-                                            @endif
                                         </td>
                                         <td class="px-4 py-3 font-mono tabular-nums">{{ substr((string) $row->clock_in_time, 0, 5) }}</td>
                                         <td class="px-4 py-3 font-mono tabular-nums">{{ substr((string) $row->clock_out_time, 0, 5) }}</td>
@@ -2385,7 +2384,7 @@ new #[Layout('layouts.app')] class extends Component
                                                                                 wire:click="openEmployeePanel('{{ $cell['date'] }}', '{{ $chip['employee_id'] }}')"
                                                                             @endif
                                                                             class="flex-1 min-w-0 truncate text-left p-0 bg-transparent border-0 font-semibold text-white"
-                                                                            title="{{ $chipKind === 'group' ? 'Klik: anggota · Drag: pindah' : ($chipKind === 'swap_pending' ? 'Menunggu persetujuan tukar sif' : 'Klik: pengaturan · Drag: pindah') }}">
+                                                                            title="{{ $chipKind === 'group' ? 'Klik: anggota · Drag: pindah' : ($chipKind === 'swap_pending' ? 'Menunggu persetujuan tukar shift' : 'Klik: pengaturan · Drag: pindah') }}">
                                                                             {{ $chip['name'] }}
                                                                         </button>
                                                                         @if ($chipKind === 'group')
@@ -2405,11 +2404,15 @@ new #[Layout('layouts.app')] class extends Component
                                                                             <button type="button"
                                                                                 wire:click.stop="clearEmployeeShiftOverride('{{ $chip['employee_id'] }}', '{{ $cell['date'] }}')"
                                                                                 class="shrink-0 flex items-center justify-center p-0 text-white hover:bg-white/10 rounded leading-none"
-                                                                                title="Batalkan override sif">
+                                                                                title="Batalkan tukar shift">
                                                                                 <span class="text-[11px] font-bold leading-none">&times;</span>
                                                                             </button>
                                                                         @elseif (! $cellEditable && $chipKind === 'override' && !empty($chip['employee_id']))
-                                                                            <span class="shrink-0 text-[8px] uppercase opacity-80 leading-none">ovr</span>
+                                                                            <span class="shrink-0 inline-flex items-center justify-center opacity-90" title="Tukar shift">
+                                                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                                                    <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+                                                                                </svg>
+                                                                            </span>
                                                                         @endif
                                                                     </div>
                                                                 @empty
@@ -2478,11 +2481,11 @@ new #[Layout('layouts.app')] class extends Component
                     </div>
                 @endif
 
-                {{-- ========== TUKAR SIF ========== --}}
+                {{-- ========== TUKAR SHIFT ========== --}}
                 @if ($tab === 'swaps')
                     <div class="space-y-6">
                         <div>
-                            <h3 class="text-base font-semibold text-gray-900">Pengajuan Tukar Sif</h3>
+                            <h3 class="text-base font-semibold text-gray-900">Pengajuan Tukar Shift</h3>
                             <p class="text-sm text-gray-500 mt-0.5">Setujui atau tolak permintaan karyawan. Persetujuan membuat override tanggal saja (group &amp; template tidak berubah).</p>
                         </div>
 
@@ -2645,7 +2648,7 @@ new #[Layout('layouts.app')] class extends Component
                     @if ($selectedTemplateRepeatingActive)
                         <button type="button"
                             wire:click="deactivateRepeatingPattern"
-                            wire:confirm="Nonaktifkan pola berulang? Semua jadwal di blok setelah periode acuan akan dikosongkan agar dapat diatur mandiri. Blok acuan tidak berubah. Libur event dan tukar sif per tanggal tetap ada."
+                            wire:confirm="Nonaktifkan pola berulang? Semua jadwal di blok setelah periode acuan akan dikosongkan agar dapat diatur mandiri. Blok acuan tidak berubah. Libur event dan tukar shift per tanggal tetap ada."
                             wire:loading.attr="disabled"
                             wire:target="deactivateRepeatingPattern"
                             title="Hentikan pengulangan dan kosongkan blok mendatang"
@@ -2656,7 +2659,7 @@ new #[Layout('layouts.app')] class extends Component
                     @else
                         <button type="button"
                             wire:click="activateRepeatingPattern"
-                            wire:confirm="Aktifkan pola berulang? Jadwal di semua blok setelah periode acuan ini akan diganti mengikuti pola 4 minggu saat ini. Penempatan manual di blok mendatang akan hilang. Libur event dan tukar sif per tanggal tetap di tanggal asalnya."
+                            wire:confirm="Aktifkan pola berulang? Jadwal di semua blok setelah periode acuan ini akan diganti mengikuti pola 4 minggu saat ini. Penempatan manual di blok mendatang akan hilang. Libur event dan tukar shift per tanggal tetap di tanggal asalnya."
                             wire:loading.attr="disabled"
                             wire:target="activateRepeatingPattern"
                             @disabled($selectedTemplateId === '' && $activeTemplateId === '')
@@ -2879,50 +2882,76 @@ new #[Layout('layouts.app')] class extends Component
     {{-- Member panel --}}
     @if ($showMemberPanel)
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40">
-            <div class="bg-white rounded-lg shadow-xl w-full max-w-lg p-5 space-y-4 max-h-[85vh] overflow-y-auto">
-                <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-semibold">
-                        @if (filled($memberPanelEmployeeId) && count($memberPanelMembers))
-                            {{ $memberPanelMembers[0]['full_name'] }} · {{ $memberPanelDate }}
-                        @else
-                            Anggota · {{ $memberPanelDate }}
-                        @endif
-                    </h3>
-                    <button type="button" wire:click="closeMemberPanel" class="text-gray-500 text-sm">Tutup</button>
+            <div class="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[85vh] flex flex-col overflow-hidden">
+                <div class="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
+                    <div class="min-w-0">
+                        <h3 class="text-base font-semibold text-gray-900 truncate">
+                            @if (filled($memberPanelEmployeeId) && count($memberPanelMembers))
+                                {{ $memberPanelMembers[0]['full_name'] }}
+                            @elseif ($memberPanelGroupName !== '')
+                                {{ $memberPanelGroupName }}
+                            @else
+                                Anggota
+                            @endif
+                        </h3>
+                        <p class="text-xs text-gray-500 mt-0.5 tabular-nums">
+                            {{ \Illuminate\Support\Carbon::parse($memberPanelDate, \App\Support\AppTimezone::display())->translatedFormat('l, d M Y') }}
+                        </p>
+                    </div>
+                    <button type="button" wire:click="closeMemberPanel" class="shrink-0 rounded-md border border-gray-200 px-2.5 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50">Tutup</button>
                 </div>
-                <ul class="divide-y divide-gray-100">
+                <ul class="divide-y divide-gray-100 overflow-y-auto px-5 py-2">
                     @forelse ($memberPanelMembers as $m)
                         @php
                             $isLibur = in_array((string) $m['id'], $memberPanelLiburIds, true);
                             $ov = $memberPanelOverrides[(string) $m['id']] ?? null;
+                            $canEditMember = ! $calendarEditMode || $this->isCalendarDateEditable($memberPanelDate);
                         @endphp
-                        <li class="py-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                                <div class="font-medium text-gray-900 text-sm">{{ $m['full_name'] }}</div>
+                        <li class="py-3 space-y-3.5" wire:key="member-panel-{{ $m['id'] }}">
+                            <div class="flex items-start gap-2 min-w-0">
+                                <p class="flex-1 min-w-0 text-sm font-medium text-gray-900 truncate" title="{{ $m['full_name'] }}">
+                                    {{ $m['full_name'] }}
+                                </p>
                                 @if ($isLibur)
-                                    <span class="text-xs text-slate-600">Libur Rutin</span>
+                                    <span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 whitespace-nowrap">Libur Rutin</span>
                                 @elseif ($ov)
-                                    <span class="text-xs text-indigo-700">Override → {{ $ov->schedule?->name }}</span>
+                                    <span class="shrink-0 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 max-w-[45%]" title="Tukar shift → {{ $ov->schedule?->name }}">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                            <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+                                        </svg>
+                                        <span class="truncate">{{ $ov->schedule?->name }}</span>
+                                    </span>
                                 @endif
                             </div>
-                            <div class="flex flex-wrap gap-1">
-                                @if ($this->canManageLiburOnDate($memberPanelDate))
-                                    <button type="button" wire:click="toggleLiburKaryawan('{{ $m['id'] }}')"
-                                        class="rounded-md border border-gray-300 px-2 py-1 text-xs">{{ $isLibur ? 'Lepas libur rutin' : 'Libur Rutin' }}</button>
-                                @endif
-                                @if (! $calendarEditMode || $this->isCalendarDateEditable($memberPanelDate))
-                                @foreach ($schedules->where('is_enabled', true) as $sched)
-                                    <button type="button" wire:click="moveEmployeeShift('{{ $m['id'] }}', '{{ $sched->id }}')"
-                                        class="rounded-md bg-indigo-50 text-indigo-800 px-2 py-1 text-xs">→ {{ $sched->name }}</button>
-                                @endforeach
-                                @if ($ov)
-                                    <button type="button" wire:click="clearEmployeeShiftOverride('{{ $m['id'] }}')" class="rounded-md border border-gray-300 px-2 py-1 text-xs">Batal override</button>
-                                @endif
-                                @endif
-                            </div>
+                            @if ($canEditMember)
+                                <div class="flex flex-wrap gap-1.5">
+                                    @if ($this->canManageLiburOnDate($memberPanelDate))
+                                        <button type="button" wire:click="toggleLiburKaryawan('{{ $m['id'] }}')"
+                                            @class([
+                                                'rounded-md border px-2.5 py-1 text-xs font-medium whitespace-nowrap',
+                                                'border-gray-300 text-gray-700 hover:bg-gray-50' => ! $isLibur,
+                                                'border-slate-300 bg-slate-100 text-slate-700' => $isLibur,
+                                            ])>{{ $isLibur ? 'Lepas libur rutin' : 'Libur Rutin' }}</button>
+                                    @endif
+                                    @foreach ($schedules->where('is_enabled', true) as $sched)
+                                        <button type="button" wire:click="moveEmployeeShift('{{ $m['id'] }}', '{{ $sched->id }}')"
+                                            @class([
+                                                'rounded-md px-2.5 py-1 text-xs font-medium whitespace-nowrap',
+                                                'bg-indigo-600 text-white' => $ov && (string) $ov->work_schedule_id === (string) $sched->id,
+                                                'bg-indigo-50 text-indigo-800 hover:bg-indigo-100' => ! $ov || (string) $ov->work_schedule_id !== (string) $sched->id,
+                                            ])>→ {{ $sched->name }}</button>
+                                    @endforeach
+                                    @if ($ov)
+                                        <button type="button" wire:click="clearEmployeeShiftOverride('{{ $m['id'] }}')"
+                                            class="rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100 whitespace-nowrap">
+                                            Batalkan tukar shift
+                                        </button>
+                                    @endif
+                                </div>
+                            @endif
                         </li>
                     @empty
-                        <li class="py-6 text-center text-sm text-gray-500">Tidak ada anggota aktif di group ini.</li>
+                        <li class="py-8 text-center text-sm text-gray-500">Tidak ada anggota aktif di group ini.</li>
                     @endforelse
                 </ul>
             </div>

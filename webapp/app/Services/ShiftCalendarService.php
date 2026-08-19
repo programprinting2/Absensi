@@ -514,6 +514,27 @@ class ShiftCalendarService
         }
     }
 
+    /**
+     * Override jam kerja & istirahat untuk semua tanggal dengan weekday ISO yang sama dalam rentang tampilan.
+     *
+     * @param  list<string>  $datesInBlock
+     */
+    public function setDayDurationsForWeekday(
+        array $datesInBlock,
+        int $isoWeekday,
+        ?int $workMinutes,
+        ?int $breakMinutes,
+    ): void {
+        foreach ($datesInBlock as $date) {
+            $carbon = Carbon::parse($date, AppTimezone::display());
+            if ((int) $carbon->dayOfWeekIso !== $isoWeekday) {
+                continue;
+            }
+
+            $this->setDayDurations($date, $workMinutes, $breakMinutes);
+        }
+    }
+
     private function cleanupDaySettingIfEmpty(ShiftDaySetting $row): void
     {
         if (
@@ -841,7 +862,7 @@ class ShiftCalendarService
                         $foot[] = [
                             'employee_id' => $empId,
                             'name' => $emp->full_name,
-                            'badge' => 'Libur request',
+                            'badge' => 'Cuti',
                             'badge_kind' => 'libur_request',
                         ];
                     }
@@ -1486,14 +1507,14 @@ class ShiftCalendarService
                 ShiftDaySetting::HOLIDAY_ROUTINE,
                 $shouldBeHoliday,
             );
-            if (! empty($cell['work_duration_minutes']) || ! empty($cell['break_duration_minutes'])) {
-                $this->setDayDurations(
-                    $date,
-                    $cell['work_duration_minutes'] ?? null,
-                    $cell['break_duration_minutes'] ?? null,
-                );
-            }
         }
+
+        // Selalu terapkan override durasi dari pola (null = kembali ke default sif).
+        $this->setDayDurations(
+            $date,
+            $cell['work_duration_minutes'] ?? null,
+            $cell['break_duration_minutes'] ?? null,
+        );
 
         foreach ($cell['entries'] ?? [] as $entry) {
             if (empty($entry['work_schedule_id'])) {
