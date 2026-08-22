@@ -188,6 +188,41 @@ class ShiftResolver
     }
 
     /**
+     * Shift penempatan kalender (roster) tanpa memperhitungkan override tukar sif.
+     */
+    public function placementScheduleForEmployeeOnDate(Employee|string $employee, Carbon|string $date): ?WorkSchedule
+    {
+        $employeeId = $employee instanceof Employee ? $employee->id : $employee;
+        $day = $this->toDateString($date);
+
+        $directEntry = ShiftCalendarEntry::query()
+            ->with('schedule')
+            ->where('employee_id', $employeeId)
+            ->whereDate('work_date', $day)
+            ->orderBy('sort_order')
+            ->first();
+        if ($directEntry?->schedule && $this->scheduleAppliesOnDate($directEntry->schedule, $day)) {
+            return $directEntry->schedule;
+        }
+
+        $group = app(ShiftGroupService::class)->groupForEmployeeOnDate($employeeId, $day);
+        if ($group && ! $group->is_system_unassigned) {
+            $entry = ShiftCalendarEntry::query()
+                ->with('schedule')
+                ->where('group_id', $group->id)
+                ->whereDate('work_date', $day)
+                ->orderBy('sort_order')
+                ->first();
+
+            if ($entry?->schedule && $this->scheduleAppliesOnDate($entry->schedule, $day)) {
+                return $entry->schedule;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * @param  iterable<int, string>  $employeeIds
      * @return array<string, string|null>
      */

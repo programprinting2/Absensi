@@ -1,15 +1,20 @@
 <?php
 
 use App\Models\Employee;
+use App\Models\EmployeeShiftAssignment;
 use App\Models\ShiftCalendarEntry;
+use App\Models\ShiftDayOverride;
 use App\Models\ShiftDaySetting;
+use App\Models\ShiftEmployeeShiftOverride;
 use App\Models\ShiftGroup;
+use App\Models\ShiftRotationSlot;
 use App\Models\ShiftScheduleTemplate;
 use App\Models\ShiftSwapRequest;
 use App\Models\WorkSchedule;
 use App\Services\ShiftCalendarService;
 use App\Services\ShiftGroupService;
 use App\Services\ShiftSwapService;
+use App\Services\ShiftResolver;
 use App\Support\AppTimezone;
 use App\Support\Toast;
 use Illuminate\Support\Carbon;
@@ -838,7 +843,7 @@ new #[Layout('layouts.app')] class extends Component
         );
     }
 
-    public function deleteRule(string $id): void
+    public function deleteRule(string $id, ShiftCalendarService $calendar): void
     {
         $schedule = WorkSchedule::findOrFail($id);
         if (WorkSchedule::query()->count() <= 1) {
@@ -846,14 +851,33 @@ new #[Layout('layouts.app')] class extends Component
 
             return;
         }
-        if (ShiftCalendarEntry::query()->where('work_schedule_id', $id)->exists()) {
-            Toast::error('Shift masih dipakai di kalender Jadwal Shift.', $this);
 
-            return;
-        }
         $name = $schedule->name;
-        $schedule->delete();
+
+        DB::transaction(function () use ($id, $schedule, $calendar): void {
+            $calendar->purgeScheduleFromCalendarSystem($id);
+            ShiftSwapRequest::query()->where('to_work_schedule_id', $id)->delete();
+            ShiftEmployeeShiftOverride::query()->where('work_schedule_id', $id)->delete();
+            ShiftDayOverride::query()->where('work_schedule_id', $id)->delete();
+            EmployeeShiftAssignment::query()->where('work_schedule_id', $id)->delete();
+            ShiftRotationSlot::query()->where('work_schedule_id', $id)->delete();
+            $schedule->delete();
+        });
+
         Toast::success("Shift \"{$name}\" dihapus.", $this);
+    }
+
+    private function buildScheduleDeleteConfirmMessage(WorkSchedule $schedule, ShiftCalendarService $calendar): string
+    {
+        $warnings = $calendar->describeScheduleUsage((string) $schedule->id);
+        $base = 'Hapus shift "'.$schedule->name.'"?';
+        if ($warnings === []) {
+            return $base;
+        }
+
+        return $base."\n\nShift ini masih dipakai di:\n- "
+            .implode("\n- ", $warnings)
+            ."\n\nSemua data terkait akan ikut dihapus/dibersihkan. Lanjutkan?";
     }
 
     // ========== GROUPS ==========
@@ -1581,7 +1605,7 @@ new #[Layout('layouts.app')] class extends Component
         try {
             $req = ShiftSwapRequest::query()->findOrFail($id);
             $swaps->approve($req, auth()->user());
-            Toast::success('Tukar shift disetujui.', $this);
+            Toast::success('Pengajuan shift disetujui.', $this);
         } catch (\RuntimeException $e) {
             Toast::error($e->getMessage(), $this);
         }
@@ -1592,7 +1616,7 @@ new #[Layout('layouts.app')] class extends Component
         try {
             $req = ShiftSwapRequest::query()->findOrFail($id);
             $swaps->reject($req, auth()->user());
-            Toast::success('Tukar shift ditolak.', $this);
+            Toast::success('Pengajuan shift ditolak.', $this);
         } catch (\RuntimeException $e) {
             Toast::error($e->getMessage(), $this);
         }
@@ -1638,7 +1662,7 @@ new #[Layout('layouts.app')] class extends Component
         $groupCards = collect();
         $unassignedCard = [
             'id' => '',
-            'name' => 'Unassigned',
+            'name' => 'Fleksibel',
             'color' => '#94a3b8',
             'is_solo' => false,
             'is_unassigned' => true,
@@ -1667,7 +1691,7 @@ new #[Layout('layouts.app')] class extends Component
 
             $unassignedCard = [
                 'id' => $unassigned->id,
-                'name' => 'Unassigned',
+                'name' => 'Fleksibel',
                 'color' => $unassigned->color,
                 'is_solo' => false,
                 'is_unassigned' => true,
@@ -1720,6 +1744,8 @@ new #[Layout('layouts.app')] class extends Component
         $memberPanelMembers = [];
         $memberPanelLiburIds = [];
         $memberPanelOverrides = [];
+        $memberPanelPlacementSchedules = [];
+        $memberPanelPlacementGroups = [];
         $memberPanelGroupName = '';
         if ($isCalendar && $this->showMemberPanel) {
             if (filled($this->memberPanelEmployeeId)) {
@@ -1741,30 +1767,54 @@ new #[Layout('layouts.app')] class extends Component
                 ->map(fn ($id) => (string) $id)
                 ->all();
             $memberPanelOverrides = \App\Models\ShiftEmployeeShiftOverride::query()
+                ->with('schedule')
                 ->whereDate('work_date', $this->memberPanelDate)
                 ->whereIn('employee_id', collect($memberPanelMembers)->pluck('id'))
                 ->get()
                 ->keyBy(fn ($r) => (string) $r->employee_id);
+
+            if ($memberPanelOverrides->isNotEmpty()) {
+                $resolver = app(ShiftResolver::class);
+                foreach ($memberPanelOverrides->keys() as $empId) {
+                    $placement = $resolver->placementScheduleForEmployeeOnDate($empId, $this->memberPanelDate);
+                    if ($placement) {
+                        $memberPanelPlacementSchedules[$empId] = $placement->name;
+                    }
+                    $group = $groupService->groupForEmployeeOnDate($empId, $this->memberPanelDate);
+                    if ($group && ! $group->is_system_unassigned) {
+                        $memberPanelPlacementGroups[$empId] = $group->name;
+                    }
+                }
+            }
         }
 
         $weekStarts = collect($board['block']['weeks'] ?? [])->map(fn ($w) => $w[0] ?? null)->filter()->values()->all();
 
-        $pendingSwapCount = ShiftSwapRequest::query()
-            ->where('status', ShiftSwapRequest::STATUS_PENDING)
-            ->count();
+        $pendingSwapCount = ShiftSwapRequest::query()->awaitingAdminApproval()->count();
 
         $pendingSwaps = collect();
         $recentSwaps = collect();
+        $swapFromSchedules = [];
         if ($isSwaps) {
+            $resolver = app(ShiftResolver::class);
             $pendingSwaps = ShiftSwapRequest::query()
-                ->with(['employee', 'toSchedule'])
-                ->where('status', ShiftSwapRequest::STATUS_PENDING)
+                ->with(['employee', 'counterparty', 'toSchedule'])
+                ->awaitingAdminApproval()
                 ->orderBy('work_date')
                 ->orderBy('created_at')
                 ->get();
 
+            foreach ($pendingSwaps as $swap) {
+                $from = $resolver->placementScheduleForEmployeeOnDate($swap->employee_id, $swap->work_date);
+                $swapFromSchedules[(string) $swap->id] = $from?->name;
+                if ($swap->isPeerSwap() && $swap->counterparty_employee_id) {
+                    $counterFrom = $resolver->placementScheduleForEmployeeOnDate($swap->counterparty_employee_id, $swap->work_date);
+                    $swapFromSchedules['counterparty:'.(string) $swap->id] = $counterFrom?->name ?? $swap->toSchedule?->name;
+                }
+            }
+
             $recentSwaps = ShiftSwapRequest::query()
-                ->with(['employee', 'toSchedule'])
+                ->with(['employee', 'counterparty', 'toSchedule'])
                 ->where('status', '!=', ShiftSwapRequest::STATUS_PENDING)
                 ->orderByDesc('reviewed_at')
                 ->orderByDesc('created_at')
@@ -1817,8 +1867,13 @@ new #[Layout('layouts.app')] class extends Component
             $selectedTemplateRepeatingActive = $selectedTemplateForRepeating?->is_default === true;
         }
 
+        $scheduleDeleteConfirm = $schedules->mapWithKeys(fn (WorkSchedule $schedule) => [
+            (string) $schedule->id => $this->buildScheduleDeleteConfirmMessage($schedule, $calendar),
+        ])->all();
+
         return [
             'schedules' => $schedules,
+            'scheduleDeleteConfirm' => $scheduleDeleteConfirm,
             'groupCards' => $groupCards,
             'unassignedCard' => $unassignedCard,
             'board' => $board,
@@ -1827,10 +1882,13 @@ new #[Layout('layouts.app')] class extends Component
             'memberPanelMembers' => $memberPanelMembers,
             'memberPanelLiburIds' => $memberPanelLiburIds,
             'memberPanelOverrides' => $memberPanelOverrides,
+            'memberPanelPlacementSchedules' => $memberPanelPlacementSchedules,
+            'memberPanelPlacementGroups' => $memberPanelPlacementGroups,
             'memberPanelGroupName' => $memberPanelGroupName,
             'weekStarts' => $weekStarts,
             'weekdayLabels' => ['SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT', 'SABTU', 'MINGGU'],
             'pendingSwaps' => $pendingSwaps,
+            'swapFromSchedules' => $swapFromSchedules,
             'recentSwaps' => $recentSwaps,
             'pendingSwapCount' => $pendingSwapCount,
             'repeatingPatternActive' => $repeatingPatternActive,
@@ -2229,7 +2287,7 @@ new #[Layout('layouts.app')] class extends Component
                                         </td>
                                         <td class="px-4 py-3 text-right whitespace-nowrap">
                                             <button type="button" wire:click="openEditRule('{{ $row->id }}')" class="text-indigo-600 hover:text-indigo-800 text-sm font-medium">Edit</button>
-                                            <button type="button" wire:click="deleteRule('{{ $row->id }}')" wire:confirm="Hapus shift {{ $row->name }}?" class="ml-3 text-red-600 hover:text-red-800 text-sm font-medium">Hapus</button>
+                                            <button type="button" wire:click="deleteRule('{{ $row->id }}')" wire:confirm="{{ e($scheduleDeleteConfirm[$row->id] ?? ('Hapus shift "'.$row->name.'"?')) }}" class="ml-3 text-red-600 hover:text-red-800 text-sm font-medium">Hapus</button>
                                         </td>
                                     </tr>
                                 @empty
@@ -2244,7 +2302,7 @@ new #[Layout('layouts.app')] class extends Component
                 @if ($tab === 'groups')
                     <div class="mb-4">
                         <h3 class="text-base font-semibold text-gray-900">Group</h3>
-                        <p class="text-sm text-gray-500 mt-0.5">Kelompokkan karyawan untuk jadwal tim. Karyawan tanpa group tetap di Unassigned — tarik langsung ke kalender tanpa perlu buat group.</p>
+                        <p class="text-sm text-gray-500 mt-0.5">Kelompokkan karyawan untuk jadwal tim. Karyawan tanpa group tetap di Fleksibel — tarik langsung ke kalender tanpa perlu buat group.</p>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -2268,9 +2326,6 @@ new #[Layout('layouts.app')] class extends Component
                                             @dragstart="onDragStartEmployee('{{ $m['id'] }}', $event)"
                                             class="cursor-grab active:cursor-grabbing rounded-md bg-gray-50 hover:bg-gray-100 px-2 py-1.5 text-sm text-gray-800">
                                             {{ $m['full_name'] }}
-                                            @if ($m['employee_code'])
-                                                <span class="text-xs text-gray-400">{{ $m['employee_code'] }}</span>
-                                            @endif
                                         </div>
                                     @empty
                                         <p class="text-xs text-gray-400 px-1 py-2">Kosong — drop karyawan ke sini</p>
@@ -2285,7 +2340,7 @@ new #[Layout('layouts.app')] class extends Component
                             @drop.prevent="onDropToGroup('{{ $unassignedCard['id'] }}', $event)">
                             <div class="flex items-center gap-2 px-3 py-2 border-b border-gray-200">
                                 <span class="h-3 w-3 rounded-full shrink-0 bg-slate-400"></span>
-                                <span class="font-semibold text-sm text-gray-700 truncate flex-1">Unassigned</span>
+                                <span class="font-semibold text-sm text-gray-700 truncate flex-1">FLEKSIBEL (Unassigned)</span>
                                 <span class="text-xs text-gray-400">{{ count($unassignedCard['members']) }}</span>
                             </div>
                             <div class="flex-1 p-2 space-y-1 overflow-y-auto max-h-64">
@@ -2447,7 +2502,7 @@ new #[Layout('layouts.app')] class extends Component
                                         style="padding: 0.5rem;"
                                         @dragover.prevent
                                         @drop.prevent="onDropToUnassigned($event)">
-                                        <h4 class="text-xs font-bold text-gray-500 uppercase tracking-wide">KARYAWAN (Unassigned)</h4>
+                                        <h4 class="text-xs font-bold text-gray-500 uppercase tracking-wide">FLEKSIBEL (Unassigned)</h4>
                                         <div class="space-y-1">
                                             @forelse ($board['poolEmployees'] as $pe)
                                                 <div draggable="true"
@@ -2457,7 +2512,7 @@ new #[Layout('layouts.app')] class extends Component
                                                     <span class="truncate text-left">{{ $pe['full_name'] }}</span>
                                                 </div>
                                             @empty
-                                                <p class="text-xs text-gray-400">Tidak ada karyawan unassigned.</p>
+                                                <p class="text-xs text-gray-400">Tidak ada karyawan fleksibel.</p>
                                             @endforelse
                                         </div>
                                     </div>
@@ -2867,27 +2922,47 @@ new #[Layout('layouts.app')] class extends Component
                 @if ($tab === 'swaps')
                     <div class="space-y-6">
                         <div>
-                            <h3 class="text-base font-semibold text-gray-900">Pengajuan Tukar Shift</h3>
-                            <p class="text-sm text-gray-500 mt-0.5">Setujui atau tolak permintaan karyawan. Persetujuan membuat override tanggal saja (group &amp; template tidak berubah).</p>
+                            <h3 class="text-base font-semibold text-gray-900">Pengajuan Shift</h3>
+                            <p class="text-sm text-gray-500 mt-0.5">Setujui atau tolak permintaan pindah shift dan tukar shift antar karyawan.</p>
                         </div>
 
                         <div class="overflow-x-auto border border-gray-200 rounded-lg">
                             <table class="min-w-full divide-y divide-gray-200 text-sm">
                                 <thead class="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     <tr>
+                                        <th class="px-4 py-2.5">Jenis</th>
                                         <th class="px-4 py-2.5">Karyawan</th>
+                                        <th class="px-4 py-2.5">Lawan</th>
                                         <th class="px-4 py-2.5">Tanggal</th>
-                                        <th class="px-4 py-2.5">Ke shift</th>
+                                        <th class="px-4 py-2.5">Perubahan shift</th>
                                         <th class="px-4 py-2.5">Alasan</th>
                                         <th class="px-4 py-2.5 text-right">Aksi</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-100 bg-white">
                                     @forelse ($pendingSwaps as $swap)
+                                        @php
+                                            $fromName = $swapFromSchedules[(string) $swap->id] ?? '—';
+                                            $counterFromName = $swapFromSchedules['counterparty:'.(string) $swap->id] ?? null;
+                                        @endphp
                                         <tr wire:key="swap-pending-{{ $swap->id }}">
+                                            <td class="px-4 py-3">{{ \App\Models\ShiftSwapRequest::typeLabel($swap->request_type ?? 'move') }}</td>
                                             <td class="px-4 py-3 font-medium text-gray-900">{{ $swap->employee?->full_name ?? '—' }}</td>
+                                            <td class="px-4 py-3">{{ $swap->isPeerSwap() ? ($swap->counterparty?->full_name ?? '—') : '—' }}</td>
                                             <td class="px-4 py-3 tabular-nums">{{ $swap->work_date->translatedFormat('D, d M Y') }}</td>
-                                            <td class="px-4 py-3">{{ $swap->toSchedule?->name ?? '—' }}</td>
+                                            <td class="px-4 py-3">
+                                                @if ($swap->isPeerSwap())
+                                                    <span class="inline-flex items-center gap-1">
+                                                        <span>{{ $fromName }}</span>
+                                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0 text-indigo-600" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+                                                            <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
+                                                        </svg>
+                                                        <span>{{ $counterFromName ?? ($swap->toSchedule?->name ?? '—') }}</span>
+                                                    </span>
+                                                @else
+                                                    {{ $fromName }} → {{ $swap->toSchedule?->name ?? '—' }}
+                                                @endif
+                                            </td>
                                             <td class="px-4 py-3 text-gray-600 max-w-xs truncate">{{ $swap->reason ?: '—' }}</td>
                                             <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
                                                 <button type="button" wire:click="approveSwap('{{ $swap->id }}')" class="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white">Setujui</button>
@@ -2896,7 +2971,7 @@ new #[Layout('layouts.app')] class extends Component
                                         </tr>
                                     @empty
                                         <tr>
-                                            <td colspan="5" class="px-4 py-8 text-center text-sm text-gray-500">Tidak ada pengajuan menunggu.</td>
+                                            <td colspan="7" class="px-4 py-8 text-center text-sm text-gray-500">Tidak ada pengajuan menunggu.</td>
                                         </tr>
                                     @endforelse
                                 </tbody>
@@ -2910,18 +2985,26 @@ new #[Layout('layouts.app')] class extends Component
                                     <table class="min-w-full divide-y divide-gray-200 text-sm">
                                         <thead class="bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                             <tr>
+                                                <th class="px-4 py-2.5">Jenis</th>
                                                 <th class="px-4 py-2.5">Karyawan</th>
                                                 <th class="px-4 py-2.5">Tanggal</th>
-                                                <th class="px-4 py-2.5">Ke shift</th>
+                                                <th class="px-4 py-2.5">Detail</th>
                                                 <th class="px-4 py-2.5">Status</th>
                                             </tr>
                                         </thead>
                                         <tbody class="divide-y divide-gray-100 bg-white">
                                             @foreach ($recentSwaps as $swap)
                                                 <tr wire:key="swap-recent-{{ $swap->id }}">
+                                                    <td class="px-4 py-3">{{ \App\Models\ShiftSwapRequest::typeLabel($swap->request_type ?? 'move') }}</td>
                                                     <td class="px-4 py-3">{{ $swap->employee?->full_name ?? '—' }}</td>
                                                     <td class="px-4 py-3 tabular-nums">{{ $swap->work_date->translatedFormat('d M Y') }}</td>
-                                                    <td class="px-4 py-3">{{ $swap->toSchedule?->name ?? '—' }}</td>
+                                                    <td class="px-4 py-3">
+                                                        @if ($swap->isPeerSwap())
+                                                            ↔ {{ $swap->counterparty?->full_name ?? '—' }}
+                                                        @else
+                                                            → {{ $swap->toSchedule?->name ?? '—' }}
+                                                        @endif
+                                                    </td>
                                                     <td class="px-4 py-3">
                                                         <span @class([
                                                             'inline-flex rounded-full px-2 py-0.5 text-xs font-medium',
@@ -3416,7 +3499,7 @@ new #[Layout('layouts.app')] class extends Component
                             $ov = $memberPanelOverrides[(string) $m['id']] ?? null;
                             $canEditMember = $this->canManageMembersOnDate($memberPanelDate);
                         @endphp
-                        <li class="py-3 space-y-3.5" wire:key="member-panel-{{ $m['id'] }}">
+                        <li class="py-3 space-y-3" wire:key="member-panel-{{ $m['id'] }}">
                             <div class="flex items-start gap-2 min-w-0">
                                 <p class="flex-1 min-w-0 text-sm font-medium text-gray-900 truncate" title="{{ $m['full_name'] }}">
                                     {{ $m['full_name'] }}
@@ -3424,11 +3507,23 @@ new #[Layout('layouts.app')] class extends Component
                                 @if ($isLibur)
                                     <span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 whitespace-nowrap">Libur Rutin</span>
                                 @elseif ($ov)
-                                    <span class="shrink-0 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 max-w-[45%]" title="Tukar shift → {{ $ov->schedule?->name }}">
+                                    @php
+                                        $fromGroupName = $memberPanelPlacementGroups[(string) $m['id']] ?? null;
+                                        $fromScheduleName = $memberPanelPlacementSchedules[(string) $m['id']] ?? null;
+                                        $toScheduleName = $ov->schedule?->name;
+                                        $fromLabel = $fromGroupName && $fromScheduleName
+                                            ? $fromGroupName.' : '.$fromScheduleName
+                                            : $fromScheduleName;
+                                    @endphp
+                                    <span class="shrink-0 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 max-w-[70%]"
+                                        title="Tukar shift{{ $fromLabel ? ': '.$fromLabel.' → '.$toScheduleName : ' → '.$toScheduleName }}">
+                                        @if ($fromLabel)
+                                            <span class="truncate">{{ $fromLabel }}</span>
+                                        @endif
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                             <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
                                         </svg>
-                                        <span class="truncate">{{ $ov->schedule?->name }}</span>
+                                        <span class="truncate">{{ $toScheduleName }}</span>
                                     </span>
                                 @endif
                             </div>

@@ -19,6 +19,10 @@ void retryDetectIfNeeded();
 // -2 jika jari terbaca tapi tidak valid (tidak cocok / confidence rendah).
 int pollForMatch();
 
+// Sama seperti pollForMatch(), tapi ulangi hingga maxAttempts kali jika jari
+// terbaca tapi tidak cocok / confidence rendah (-2).
+int pollForMatchWithRetry(int maxAttempts = 3);
+
 // Paksa LED sensor merah setelah validasi gagal di aplikasi (mis. slot cocok
 // di flash sensor tapi tidak terdaftar di sistem — sensor defaultnya hijau).
 void indicateFailure();

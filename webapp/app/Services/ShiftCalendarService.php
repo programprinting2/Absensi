@@ -4,12 +4,15 @@ namespace App\Services;
 
 use App\Jobs\SyncRepeatingShiftPatternCellJob;
 use App\Models\Employee;
+use App\Models\EmployeeShiftAssignment;
 use App\Models\ShiftCalendarEntry;
+use App\Models\ShiftDayOverride;
 use App\Models\ShiftDaySetting;
 use App\Models\ShiftEmployeeLibur;
 use App\Models\ShiftEmployeeShiftOverride;
 use App\Models\ShiftGroup;
 use App\Models\ShiftGroupMember;
+use App\Models\ShiftRotationSlot;
 use App\Models\ShiftScheduleTemplate;
 use App\Models\ShiftSwapRequest;
 use App\Models\WorkSchedule;
@@ -1264,11 +1267,14 @@ class ShiftCalendarService
                 ]);
             });
 
-            SyncRepeatingShiftPatternCellJob::dispatch(
-                (string) $template->getKey(),
-                $workDate,
-                $monthsAhead,
-            )->afterCommit();
+            $templateId = (string) $template->getKey();
+            DB::afterCommit(function () use ($templateId, $workDate, $monthsAhead) {
+                SyncRepeatingShiftPatternCellJob::dispatch(
+                    $templateId,
+                    $workDate,
+                    $monthsAhead,
+                );
+            });
 
             $this->audit(
                 'Menjadwalkan sinkronisasi pola berulang "'.$template->name.'" setelah perubahan di blok acuan',
@@ -1417,6 +1423,27 @@ class ShiftCalendarService
         $block = $this->fourWeekBlock($blockStart);
 
         return collect($block['weeks'])->flatten()->contains($date);
+    }
+
+    private function syncRepeatingPatternFromAnchorIfNeeded(string $weekStart): void
+    {
+        $templates = ShiftScheduleTemplate::query()
+            ->where('is_default', true)
+            ->where('is_active', true)
+            ->get();
+
+        foreach ($templates as $template) {
+            $anchorStart = $template->payload['anchor_start'] ?? null;
+            if (! is_string($anchorStart) || $anchorStart === '') {
+                continue;
+            }
+
+            if (! $this->dateInBlock($weekStart, $anchorStart)) {
+                continue;
+            }
+
+            $this->updateTemplateFromBlock($template, $anchorStart);
+        }
     }
 
     private function rematerializeRepeatingFuture(
@@ -1626,15 +1653,19 @@ class ShiftCalendarService
         );
     }
 
-    public function copyWeek(string $sourceWeekStart, string $targetWeekStart): void
+    public function copyWeek(string $sourceWeekStart, string $targetWeekStart, bool $syncRepeatingAfter = true): void
     {
         $tz = AppTimezone::display();
         $src = Carbon::parse($sourceWeekStart, $tz)->startOfWeek(Carbon::MONDAY);
         $tgt = Carbon::parse($targetWeekStart, $tz)->startOfWeek(Carbon::MONDAY);
 
-        DB::transaction(function () use ($src, $tgt) {
-            $this->suppressAudit = true;
-            try {
+        $previousSuppressAudit = $this->suppressAudit;
+        $previousSuppressRepeatingSync = $this->suppressRepeatingSync;
+        $this->suppressAudit = true;
+        $this->suppressRepeatingSync = true;
+
+        try {
+            DB::transaction(function () use ($src, $tgt) {
                 for ($i = 0; $i < 7; $i++) {
                     $from = $src->copy()->addDays($i)->toDateString();
                     $to = $tgt->copy()->addDays($i)->toDateString();
@@ -1673,10 +1704,15 @@ class ShiftCalendarService
                         );
                     }
                 }
-            } finally {
-                $this->suppressAudit = false;
+            });
+
+            if ($syncRepeatingAfter) {
+                $this->syncRepeatingPatternFromAnchorIfNeeded($sourceWeekStart);
             }
-        });
+        } finally {
+            $this->suppressAudit = $previousSuppressAudit;
+            $this->suppressRepeatingSync = $previousSuppressRepeatingSync;
+        }
 
         $this->audit(
             'Menyalin pola minggu '.$src->toDateString().' → '.$tgt->toDateString(),
@@ -1695,8 +1731,10 @@ class ShiftCalendarService
                 continue;
             }
 
-            $this->copyWeek($sourceWeekStart, $targetWeekStart);
+            $this->copyWeek($sourceWeekStart, $targetWeekStart, syncRepeatingAfter: false);
         }
+
+        $this->syncRepeatingPatternFromAnchorIfNeeded($sourceWeekStart);
     }
 
     public function copyAllWeeksToNextPeriod(
@@ -2084,5 +2122,133 @@ class ShiftCalendarService
             'removed_entries' => $removed,
             'unscheduled_employees' => array_values($unscheduled),
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function describeScheduleUsage(string $scheduleId): array
+    {
+        $warnings = [];
+
+        $calendarCount = ShiftCalendarEntry::query()->where('work_schedule_id', $scheduleId)->count();
+        if ($calendarCount > 0) {
+            $warnings[] = "kalender jadwal ({$calendarCount} penempatan)";
+        }
+
+        $templateNames = ShiftScheduleTemplate::query()
+            ->get()
+            ->filter(fn (ShiftScheduleTemplate $template) => $this->templatePayloadContainsSchedule(
+                $template->payload ?? [],
+                $scheduleId,
+            ))
+            ->pluck('name')
+            ->all();
+        if ($templateNames !== []) {
+            $warnings[] = 'template pola: '.implode(', ', $templateNames);
+        }
+
+        $pendingSwaps = ShiftSwapRequest::query()
+            ->where('to_work_schedule_id', $scheduleId)
+            ->where('status', ShiftSwapRequest::STATUS_PENDING)
+            ->count();
+        if ($pendingSwaps > 0) {
+            $warnings[] = "{$pendingSwaps} permintaan pindah/tukar shift yang menunggu";
+        }
+
+        $historicalSwaps = ShiftSwapRequest::query()
+            ->where('to_work_schedule_id', $scheduleId)
+            ->where('status', '!=', ShiftSwapRequest::STATUS_PENDING)
+            ->count();
+        if ($historicalSwaps > 0) {
+            $warnings[] = "riwayat permintaan shift ({$historicalSwaps})";
+        }
+
+        $overrides = ShiftEmployeeShiftOverride::query()->where('work_schedule_id', $scheduleId)->count();
+        if ($overrides > 0) {
+            $warnings[] = "override shift karyawan ({$overrides})";
+        }
+
+        $assignments = EmployeeShiftAssignment::query()->where('work_schedule_id', $scheduleId)->count();
+        if ($assignments > 0) {
+            $warnings[] = "penugasan shift karyawan ({$assignments})";
+        }
+
+        $rotationSlots = ShiftRotationSlot::query()->where('work_schedule_id', $scheduleId)->count();
+        if ($rotationSlots > 0) {
+            $warnings[] = "rotasi shift ({$rotationSlots} slot)";
+        }
+
+        $dayOverrides = ShiftDayOverride::query()->where('work_schedule_id', $scheduleId)->count();
+        if ($dayOverrides > 0) {
+            $warnings[] = "override hari ({$dayOverrides})";
+        }
+
+        return $warnings;
+    }
+
+    public function purgeScheduleFromCalendarSystem(string $scheduleId): void
+    {
+        $affectedDefaultTemplates = [];
+
+        foreach (ShiftScheduleTemplate::query()->get() as $template) {
+            $payload = $template->payload ?? ['weeks' => []];
+            if (! $this->templatePayloadContainsSchedule($payload, $scheduleId)) {
+                continue;
+            }
+
+            $payload = $this->stripScheduleFromTemplatePayload($payload, $scheduleId);
+            $template->update([
+                'payload' => $payload,
+                'updated_at' => now(),
+            ]);
+
+            if ($template->is_default && ! empty($payload['anchor_start'])) {
+                $affectedDefaultTemplates[] = $template->fresh();
+            }
+        }
+
+        ShiftCalendarEntry::query()->where('work_schedule_id', $scheduleId)->delete();
+
+        foreach ($affectedDefaultTemplates as $template) {
+            $this->rematerializeRepeatingFuture($template);
+        }
+    }
+
+    private function templatePayloadContainsSchedule(array $payload, string $scheduleId): bool
+    {
+        foreach ($payload['weeks'] ?? [] as $week) {
+            foreach ($week as $day) {
+                foreach ($day['entries'] ?? [] as $entry) {
+                    if ((string) ($entry['work_schedule_id'] ?? '') === $scheduleId) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function stripScheduleFromTemplatePayload(array $payload, string $scheduleId): array
+    {
+        foreach ($payload['weeks'] ?? [] as $weekIndex => $week) {
+            foreach ($week as $dayIndex => $day) {
+                if (empty($day['entries'])) {
+                    continue;
+                }
+
+                $payload['weeks'][$weekIndex][$dayIndex]['entries'] = array_values(array_filter(
+                    $day['entries'],
+                    fn ($entry) => (string) ($entry['work_schedule_id'] ?? '') !== $scheduleId,
+                ));
+            }
+        }
+
+        return $payload;
     }
 }

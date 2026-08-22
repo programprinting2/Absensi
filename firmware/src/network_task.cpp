@@ -23,6 +23,7 @@ String deviceId;
 // Diakses dari dua core — pakai volatile + section kritis seperlunya.
 volatile bool deviceIdResolved = false;
 volatile bool cacheRefreshRequested = false;
+volatile bool cacheRefreshSyncWait = false;
 volatile bool hasPendingCommand = false;
 volatile bool commandInFlight = false; // sudah diserahkan ke core 1, hasil belum kembali
 volatile bool hasCommandResult = false;
@@ -110,6 +111,7 @@ void taskLoop(void *param) {
             cacheRefreshRequested = false;
             employee_cache::refresh(deviceId);
             lastCacheRefreshMs = millis();
+            cacheRefreshSyncWait = false;
         }
 
         if (now - lastConfigRefreshMs >= DEVICE_CONFIG_REFRESH_MS) {
@@ -225,6 +227,22 @@ bool takePendingCommand(command_poller::PendingCommand &outCommand) {
 
 void requestCacheRefresh() {
     cacheRefreshRequested = true;
+}
+
+bool refreshCacheSync(unsigned long timeoutMs) {
+    cacheRefreshRequested = true;
+    cacheRefreshSyncWait = true;
+
+    unsigned long start = millis();
+    while (cacheRefreshSyncWait && millis() - start < timeoutMs) {
+        delay(50);
+    }
+
+    bool completed = !cacheRefreshSyncWait;
+    if (!completed) {
+        cacheRefreshSyncWait = false;
+    }
+    return completed;
 }
 
 void requestSyncNow() {

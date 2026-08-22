@@ -9,6 +9,7 @@ use App\Models\WorkSchedule;
 use App\Services\ShiftCalendarService;
 use App\Services\ShiftGroupService;
 use App\Services\ShiftSwapService;
+use App\Services\ShiftResolver;
 use App\Support\AppTimezone;
 use App\Support\Toast;
 use Illuminate\Support\Carbon;
@@ -29,11 +30,16 @@ new #[Layout('layouts.app')] class extends Component
 
     public int $viewMonth = 0;
 
-    public bool $showForm = false;
+    public bool $showRequestModal = false;
+
+    /** @var 'choose'|'move'|'peer_swap' */
+    public string $requestStep = 'choose';
 
     public string $work_date = '';
 
     public string $to_schedule_id = '';
+
+    public string $counterparty_employee_id = '';
 
     public string $reason = '';
 
@@ -175,22 +181,39 @@ new #[Layout('layouts.app')] class extends Component
         $this->memberPanelEmployeeId = null;
     }
 
-    public function openForm(?string $date = null): void
+    public function openRequestChooser(string $date): void
     {
         $this->resetValidation();
-        $this->work_date = $date ?: now()->toDateString();
+        $this->work_date = $date;
         $this->to_schedule_id = '';
+        $this->counterparty_employee_id = '';
         $this->reason = '';
-        $this->showForm = true;
+        $this->requestStep = 'choose';
+        $this->showRequestModal = true;
     }
 
-    public function closeForm(): void
+    public function chooseRequestType(string $type): void
     {
-        $this->showForm = false;
+        if (! in_array($type, ['move', 'peer_swap'], true)) {
+            return;
+        }
+        $this->requestStep = $type;
+    }
+
+    public function backToRequestChooser(): void
+    {
+        $this->requestStep = 'choose';
         $this->resetValidation();
     }
 
-    public function save(ShiftSwapService $swaps): void
+    public function closeRequestModal(): void
+    {
+        $this->showRequestModal = false;
+        $this->requestStep = 'choose';
+        $this->resetValidation();
+    }
+
+    public function saveMove(ShiftSwapService $swaps): void
     {
         $employee = auth()->user()?->employee;
         if (! $employee) {
@@ -206,15 +229,80 @@ new #[Layout('layouts.app')] class extends Component
         ]);
 
         try {
-            $swaps->createRequest(
+            $swaps->createMoveRequest(
                 $employee,
                 $data['work_date'],
                 $data['to_schedule_id'],
                 $data['reason'] ?: null,
             );
-            $this->showForm = false;
-            Toast::success('Pengajuan tukar sif terkirim.', $this);
+            $this->closeRequestModal();
+            Toast::success('Pengajuan pindah shift terkirim.', $this);
         } catch (\InvalidArgumentException|\RuntimeException $e) {
+            Toast::error($e->getMessage(), $this);
+        }
+    }
+
+    public function savePeerSwap(ShiftSwapService $swaps): void
+    {
+        $employee = auth()->user()?->employee;
+        if (! $employee) {
+            Toast::error('Akun belum terhubung ke data karyawan.', $this);
+
+            return;
+        }
+
+        $data = $this->validate([
+            'work_date' => ['required', 'date'],
+            'counterparty_employee_id' => ['required', 'uuid', 'exists:employees,id'],
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        try {
+            $swaps->createPeerSwapRequest(
+                $employee,
+                $data['work_date'],
+                $data['counterparty_employee_id'],
+                $data['reason'] ?: null,
+            );
+            $this->closeRequestModal();
+            Toast::success('Pengajuan tukar shift terkirim. Menunggu konfirmasi rekan.', $this);
+        } catch (\InvalidArgumentException|\RuntimeException $e) {
+            Toast::error($e->getMessage(), $this);
+        }
+    }
+
+    public function approveIncomingPeer(string $id, ShiftSwapService $swaps): void
+    {
+        $employee = auth()->user()?->employee;
+        if (! $employee) {
+            Toast::error('Akun belum terhubung ke data karyawan.', $this);
+
+            return;
+        }
+
+        try {
+            $req = ShiftSwapRequest::query()->findOrFail($id);
+            $swaps->approvePeer($req, $employee);
+            Toast::success('Tukar shift disetujui. Menunggu konfirmasi admin.', $this);
+        } catch (\RuntimeException $e) {
+            Toast::error($e->getMessage(), $this);
+        }
+    }
+
+    public function rejectIncomingPeer(string $id, ShiftSwapService $swaps): void
+    {
+        $employee = auth()->user()?->employee;
+        if (! $employee) {
+            Toast::error('Akun belum terhubung ke data karyawan.', $this);
+
+            return;
+        }
+
+        try {
+            $req = ShiftSwapRequest::query()->findOrFail($id);
+            $swaps->rejectPeer($req, $employee);
+            Toast::success('Tukar shift ditolak.', $this);
+        } catch (\RuntimeException $e) {
             Toast::error($e->getMessage(), $this);
         }
     }
@@ -237,7 +325,7 @@ new #[Layout('layouts.app')] class extends Component
         }
     }
 
-    public function with(ShiftCalendarService $calendar, ShiftGroupService $groupService): array
+    public function with(ShiftCalendarService $calendar, ShiftGroupService $groupService, ShiftSwapService $swaps): array
     {
         $employee = auth()->user()?->employee;
         $board = null;
@@ -275,6 +363,8 @@ new #[Layout('layouts.app')] class extends Component
         $memberPanelMembers = [];
         $memberPanelLiburIds = [];
         $memberPanelOverrides = [];
+        $memberPanelPlacementSchedules = [];
+        $memberPanelPlacementGroups = [];
         $memberPanelGroupName = '';
         if ($employee && $this->showMemberPanel) {
             if (filled($this->memberPanelEmployeeId)) {
@@ -301,16 +391,47 @@ new #[Layout('layouts.app')] class extends Component
                 ->whereIn('employee_id', collect($memberPanelMembers)->pluck('id'))
                 ->get()
                 ->keyBy(fn ($r) => (string) $r->employee_id);
+
+            if ($memberPanelOverrides->isNotEmpty()) {
+                $resolver = app(ShiftResolver::class);
+                foreach ($memberPanelOverrides->keys() as $empId) {
+                    $placement = $resolver->placementScheduleForEmployeeOnDate($empId, $this->memberPanelDate);
+                    if ($placement) {
+                        $memberPanelPlacementSchedules[$empId] = $placement->name;
+                    }
+                    $group = $groupService->groupForEmployeeOnDate($empId, $this->memberPanelDate);
+                    if ($group && ! $group->is_system_unassigned) {
+                        $memberPanelPlacementGroups[$empId] = $group->name;
+                    }
+                }
+            }
         }
 
         $requests = $employee
             ? ShiftSwapRequest::query()
-                ->with('toSchedule')
+                ->with(['toSchedule', 'counterparty'])
                 ->where('employee_id', $employee->id)
                 ->orderByDesc('created_at')
                 ->limit(30)
                 ->get()
             : collect();
+
+        $incomingPeerRequests = $employee
+            ? ShiftSwapRequest::query()
+                ->with(['employee', 'toSchedule'])
+                ->where('counterparty_employee_id', $employee->id)
+                ->where('request_type', ShiftSwapRequest::TYPE_PEER_SWAP)
+                ->where('status', ShiftSwapRequest::STATUS_PENDING)
+                ->where('peer_status', ShiftSwapRequest::PEER_STATUS_PENDING)
+                ->orderByDesc('created_at')
+                ->limit(20)
+                ->get()
+            : collect();
+
+        $peerSwapOptions = [];
+        if ($employee && $this->showRequestModal && $this->requestStep === 'peer_swap' && $this->work_date !== '') {
+            $peerSwapOptions = $swaps->employeesScheduledOnDate($this->work_date, (string) $employee->id);
+        }
 
         return [
             'employee' => $employee,
@@ -318,10 +439,14 @@ new #[Layout('layouts.app')] class extends Component
             'periodLabel' => $periodLabel,
             'schedules' => WorkSchedule::query()->enabled()->orderBy('clock_in_time')->orderBy('name')->get(),
             'requests' => $requests,
+            'incomingPeerRequests' => $incomingPeerRequests,
+            'peerSwapOptions' => $peerSwapOptions,
             'weekdayLabels' => ['SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT', 'SABTU', 'MINGGU'],
             'memberPanelMembers' => $memberPanelMembers,
             'memberPanelLiburIds' => $memberPanelLiburIds,
             'memberPanelOverrides' => $memberPanelOverrides,
+            'memberPanelPlacementSchedules' => $memberPanelPlacementSchedules,
+            'memberPanelPlacementGroups' => $memberPanelPlacementGroups,
             'memberPanelGroupName' => $memberPanelGroupName,
         ];
     }
@@ -385,9 +510,6 @@ new #[Layout('layouts.app')] class extends Component
                             Kalender
                         </button>
                     </div>
-                    <button type="button" wire:click="openForm" class="inline-flex items-center justify-center h-8 shrink-0 rounded-md px-3 text-xs font-semibold whitespace-nowrap bg-gray-800 text-white hover:bg-gray-700">
-                        + Ajukan Tukar Sif
-                    </button>
                 </div>
             @endif
         </div>
@@ -481,11 +603,14 @@ new #[Layout('layouts.app')] class extends Component
                                                                         ($calendarViewMode === 'month' && empty($cell['in_month'])) ? 'shift-cell-outside-month' : '',
                                                                     ])>
                                                                     <div class="relative z-10 flex shrink-0 items-stretch min-w-0" style="gap: 0.5rem">
-                                                                        <div class="inline-flex flex-col shrink-0 items-center justify-center rounded font-semibold tabular-nums box-border text-white bg-gray-800"
-                                                                            style="padding: 0.2rem 0.25rem; width: 2.5rem; min-height: 2.5rem;">
+                                                                        <button type="button"
+                                                                            wire:click="openRequestChooser('{{ $cell['date'] }}')"
+                                                                            class="inline-flex flex-col shrink-0 items-center justify-center rounded font-semibold tabular-nums box-border text-white bg-gray-800 hover:bg-gray-700 transition cursor-pointer"
+                                                                            style="padding: 0.2rem 0.25rem; width: 2.5rem; min-height: 2.5rem;"
+                                                                            title="Ajukan pindah atau tukar shift">
                                                                             <span class="text-sm leading-none">{{ $cell['day'] }}</span>
                                                                             <span class="text-[10px] font-semibold uppercase leading-none mt-0.5 opacity-80">{{ $monthShort }}</span>
-                                                                        </div>
+                                                                        </button>
                                                                         @if (!empty($cell['national']['name']))
                                                                             <span
                                                                                 x-data="{
@@ -699,16 +824,53 @@ new #[Layout('layouts.app')] class extends Component
                     </div>
                 @endif
 
+                @if ($incomingPeerRequests->isNotEmpty())
+                    <div class="bg-white shadow-sm rounded-lg border border-indigo-100 overflow-hidden">
+                        <div class="px-4 py-3 border-b border-indigo-100 bg-indigo-50/50">
+                            <h4 class="text-sm font-semibold text-indigo-900">Permintaan tukar shift masuk</h4>
+                            <p class="text-xs text-indigo-700 mt-0.5">Rekan meminta bertukar shift dengan Anda.</p>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                <thead class="bg-gray-50">
+                                    <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        <th class="px-4 py-3">Dari</th>
+                                        <th class="px-4 py-3">Tanggal</th>
+                                        <th class="px-4 py-3">Detail</th>
+                                        <th class="px-4 py-3">Alasan</th>
+                                        <th class="px-4 py-3 text-right">Aksi</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-100">
+                                    @foreach ($incomingPeerRequests as $incoming)
+                                        <tr wire:key="incoming-peer-{{ $incoming->id }}">
+                                            <td class="px-4 py-3 font-medium text-gray-900">{{ $incoming->employee?->full_name ?? '—' }}</td>
+                                            <td class="px-4 py-3 tabular-nums whitespace-nowrap">{{ $incoming->work_date->translatedFormat('d M Y') }}</td>
+                                            <td class="px-4 py-3 text-gray-700">Tukar shift → {{ $incoming->toSchedule?->name ?? '—' }}</td>
+                                            <td class="px-4 py-3 text-gray-600 max-w-xs truncate">{{ $incoming->reason ?: '—' }}</td>
+                                            <td class="px-4 py-3 text-right whitespace-nowrap space-x-2">
+                                                <button type="button" wire:click="approveIncomingPeer('{{ $incoming->id }}')" class="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white">Setujui</button>
+                                                <button type="button" wire:click="rejectIncomingPeer('{{ $incoming->id }}')" class="rounded-md border border-gray-300 px-2.5 py-1 text-xs font-medium text-gray-700">Tolak</button>
+                                            </td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                @endif
+
                 <div class="bg-white shadow-sm rounded-lg border border-gray-100 overflow-hidden">
                     <div class="px-4 py-3 border-b border-gray-100">
-                        <h4 class="text-sm font-semibold text-gray-900">Pengajuan tukar sif</h4>
+                        <h4 class="text-sm font-semibold text-gray-900">Pengajuan saya</h4>
                     </div>
                     <div class="overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200 text-sm">
                             <thead class="bg-gray-50">
                                 <tr class="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                                     <th class="px-4 py-3">Tanggal</th>
-                                    <th class="px-4 py-3">Ke rule</th>
+                                    <th class="px-4 py-3">Jenis</th>
+                                    <th class="px-4 py-3">Detail</th>
                                     <th class="px-4 py-3">Status</th>
                                     <th class="px-4 py-3">Alasan</th>
                                     <th class="px-4 py-3 text-right">Aksi</th>
@@ -718,7 +880,14 @@ new #[Layout('layouts.app')] class extends Component
                                 @forelse ($requests as $item)
                                     <tr wire:key="my-swap-{{ $item->id }}">
                                         <td class="px-4 py-3 tabular-nums whitespace-nowrap">{{ $item->work_date->translatedFormat('d M Y') }}</td>
-                                        <td class="px-4 py-3">{{ $item->toSchedule?->name ?? '—' }}</td>
+                                        <td class="px-4 py-3">{{ \App\Models\ShiftSwapRequest::typeLabel($item->request_type ?? 'move') }}</td>
+                                        <td class="px-4 py-3">
+                                            @if ($item->isPeerSwap())
+                                                Tukar dengan {{ $item->counterparty?->full_name ?? '—' }}
+                                            @else
+                                                → {{ $item->toSchedule?->name ?? '—' }}
+                                            @endif
+                                        </td>
                                         <td class="px-4 py-3">
                                             <span @class([
                                                 'inline-flex rounded-full px-2 py-0.5 text-xs font-medium',
@@ -727,7 +896,7 @@ new #[Layout('layouts.app')] class extends Component
                                                 'bg-rose-50 text-rose-800' => $item->status === \App\Models\ShiftSwapRequest::STATUS_REJECTED,
                                                 'bg-gray-100 text-gray-600' => $item->status === \App\Models\ShiftSwapRequest::STATUS_CANCELLED,
                                             ])>
-                                                {{ \App\Models\ShiftSwapRequest::statusLabel($item->status) }}
+                                                {{ $item->displayStatusLabel() }}
                                             </span>
                                         </td>
                                         <td class="px-4 py-3 text-gray-600 max-w-xs truncate">{{ $item->reason ?: '—' }}</td>
@@ -741,7 +910,7 @@ new #[Layout('layouts.app')] class extends Component
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="5" class="px-4 py-8 text-center text-sm text-gray-500">Belum ada pengajuan.</td>
+                                        <td colspan="6" class="px-4 py-8 text-center text-sm text-gray-500">Belum ada pengajuan.</td>
                                     </tr>
                                 @endforelse
                             </tbody>
@@ -752,39 +921,90 @@ new #[Layout('layouts.app')] class extends Component
         </div>
     </div>
 
-    @if ($showForm)
+    @if ($showRequestModal)
         <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/40">
             <div class="bg-white rounded-lg shadow-xl w-full max-w-md p-5 space-y-4">
                 <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-gray-900">Ajukan tukar sif</h3>
-                    <button type="button" wire:click="closeForm" class="text-gray-500 text-sm hover:text-gray-700">Tutup</button>
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-900">
+                            @if ($requestStep === 'choose')
+                                Ajukan perubahan shift
+                            @elseif ($requestStep === 'move')
+                                Pindah Shift
+                            @else
+                                Tukar Shift
+                            @endif
+                        </h3>
+                        @if ($work_date !== '')
+                            <p class="text-xs text-gray-500 mt-0.5 tabular-nums">
+                                {{ \Illuminate\Support\Carbon::parse($work_date, \App\Support\AppTimezone::display())->translatedFormat('l, d M Y') }}
+                            </p>
+                        @endif
+                    </div>
+                    <button type="button" wire:click="closeRequestModal" class="text-gray-500 text-sm hover:text-gray-700">Tutup</button>
                 </div>
-                <form wire:submit="save" class="space-y-4">
-                    <div>
-                        <label class="block text-sm text-gray-600 mb-1">Tanggal</label>
-                        <input type="date" wire:model="work_date" class="w-full rounded-md border border-gray-300 bg-white text-sm text-gray-900 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                        @error('work_date') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+
+                @if ($requestStep === 'choose')
+                    <div class="space-y-3">
+                        <button type="button" wire:click="chooseRequestType('move')"
+                            class="w-full rounded-lg border border-gray-200 px-4 py-3 text-left hover:bg-gray-50 transition">
+                            <p class="text-sm font-semibold text-gray-900">Pindah Shift</p>
+                            <p class="text-xs text-gray-500 mt-0.5">Pindah ke shift lain pada tanggal ini.</p>
+                        </button>
+                        <button type="button" wire:click="chooseRequestType('peer_swap')"
+                            class="w-full rounded-lg border border-gray-200 px-4 py-3 text-left hover:bg-gray-50 transition">
+                            <p class="text-sm font-semibold text-gray-900">Tukar Shift</p>
+                            <p class="text-xs text-gray-500 mt-0.5">Bertukar shift dengan rekan di tanggal yang sama.</p>
+                        </button>
                     </div>
-                    <div>
-                        <label class="block text-sm text-gray-600 mb-1">Pindah ke rule</label>
-                        <select wire:model="to_schedule_id" class="w-full rounded-md border border-gray-300 bg-white text-sm text-gray-900 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
-                            <option value="">— pilih —</option>
-                            @foreach ($schedules as $sched)
-                                <option value="{{ $sched->id }}">{{ $sched->name }} ({{ \Illuminate\Support\Str::of((string) $sched->clock_in_time)->substr(0, 5) }}–{{ \Illuminate\Support\Str::of((string) $sched->clock_out_time)->substr(0, 5) }})</option>
-                            @endforeach
-                        </select>
-                        @error('to_schedule_id') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
-                    </div>
-                    <div>
-                        <label class="block text-sm text-gray-600 mb-1">Alasan</label>
-                        <textarea wire:model="reason" rows="3" class="w-full rounded-md border border-gray-300 bg-white text-sm text-gray-900 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="Opsional"></textarea>
-                        @error('reason') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
-                    </div>
-                    <div class="flex justify-end gap-2 pt-1">
-                        <button type="button" wire:click="closeForm" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Batal</button>
-                        <button type="submit" class="inline-flex items-center rounded-md bg-[#f7340d] border border-transparent px-4 py-2 text-xs font-semibold text-white uppercase tracking-widest hover:bg-[#d92c0a] transition">Kirim</button>
-                    </div>
-                </form>
+                @elseif ($requestStep === 'move')
+                    <form wire:submit="saveMove" class="space-y-4">
+                        <div>
+                            <label class="block text-sm text-gray-600 mb-1">Pindah ke shift</label>
+                            <select wire:model="to_schedule_id" class="w-full rounded-md border border-gray-300 bg-white text-sm text-gray-900 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                <option value="">— pilih —</option>
+                                @foreach ($schedules as $sched)
+                                    <option value="{{ $sched->id }}">{{ $sched->name }} ({{ \Illuminate\Support\Str::of((string) $sched->clock_in_time)->substr(0, 5) }}–{{ \Illuminate\Support\Str::of((string) $sched->clock_out_time)->substr(0, 5) }})</option>
+                                @endforeach
+                            </select>
+                            @error('to_schedule_id') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-600 mb-1">Alasan</label>
+                            <textarea wire:model="reason" rows="3" class="w-full rounded-md border border-gray-300 bg-white text-sm text-gray-900 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="Opsional"></textarea>
+                            @error('reason') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                        </div>
+                        <div class="flex justify-between gap-2 pt-1">
+                            <button type="button" wire:click="backToRequestChooser" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Kembali</button>
+                            <button type="submit" class="inline-flex items-center rounded-md bg-[#f7340d] border border-transparent px-4 py-2 text-xs font-semibold text-white uppercase tracking-widest hover:bg-[#d92c0a] transition">Kirim</button>
+                        </div>
+                    </form>
+                @else
+                    <form wire:submit="savePeerSwap" class="space-y-4">
+                        <div>
+                            <label class="block text-sm text-gray-600 mb-1">Tukar dengan</label>
+                            <select wire:model="counterparty_employee_id" class="w-full rounded-md border border-gray-300 bg-white text-sm text-gray-900 shadow-sm focus:border-indigo-500 focus:ring-indigo-500">
+                                <option value="">— pilih karyawan —</option>
+                                @foreach ($peerSwapOptions as $opt)
+                                    <option value="{{ $opt['id'] }}">{{ $opt['full_name'] }} ({{ $opt['schedule_name'] }})</option>
+                                @endforeach
+                            </select>
+                            @error('counterparty_employee_id') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                            @if (count($peerSwapOptions) === 0)
+                                <p class="text-xs text-amber-600 mt-1">Tidak ada karyawan lain yang dijadwalkan kerja pada tanggal ini.</p>
+                            @endif
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-600 mb-1">Alasan</label>
+                            <textarea wire:model="reason" rows="3" class="w-full rounded-md border border-gray-300 bg-white text-sm text-gray-900 shadow-sm focus:border-indigo-500 focus:ring-indigo-500" placeholder="Opsional"></textarea>
+                            @error('reason') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
+                        </div>
+                        <div class="flex justify-between gap-2 pt-1">
+                            <button type="button" wire:click="backToRequestChooser" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">Kembali</button>
+                            <button type="submit" @disabled(count($peerSwapOptions) === 0) class="inline-flex items-center rounded-md bg-[#f7340d] border border-transparent px-4 py-2 text-xs font-semibold text-white uppercase tracking-widest hover:bg-[#d92c0a] transition disabled:opacity-40 disabled:cursor-not-allowed">Kirim</button>
+                        </div>
+                    </form>
+                @endif
             </div>
         </div>
     @endif
@@ -823,11 +1043,23 @@ new #[Layout('layouts.app')] class extends Component
                                 @if ($isLibur)
                                     <span class="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 whitespace-nowrap">Libur Rutin</span>
                                 @elseif ($ov)
-                                    <span class="shrink-0 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 max-w-[45%]" title="Tukar shift → {{ $ov->schedule?->name }}">
+                                    @php
+                                        $fromGroupName = $memberPanelPlacementGroups[(string) $m['id']] ?? null;
+                                        $fromScheduleName = $memberPanelPlacementSchedules[(string) $m['id']] ?? null;
+                                        $toScheduleName = $ov->schedule?->name;
+                                        $fromLabel = $fromGroupName && $fromScheduleName
+                                            ? $fromGroupName.' : '.$fromScheduleName
+                                            : $fromScheduleName;
+                                    @endphp
+                                    <span class="shrink-0 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 max-w-[70%]"
+                                        title="Tukar shift{{ $fromLabel ? ': '.$fromLabel.' → '.$toScheduleName : ' → '.$toScheduleName }}">
+                                        @if ($fromLabel)
+                                            <span class="truncate">{{ $fromLabel }}</span>
+                                        @endif
                                         <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
                                             <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />
                                         </svg>
-                                        <span class="truncate">{{ $ov->schedule?->name }}</span>
+                                        <span class="truncate">{{ $toScheduleName }}</span>
                                     </span>
                                 @endif
                             </div>

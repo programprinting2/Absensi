@@ -42,6 +42,8 @@ new #[Layout('layouts.app')] class extends Component
 
     public bool $portal_enabled = false;
 
+    public string $portal_username = '';
+
     public string $portal_email = '';
 
     public string $portal_password = '';
@@ -81,6 +83,11 @@ new #[Layout('layouts.app')] class extends Component
         $this->pin_confirmation = '';
         $portalUser = $employee->portalUser;
         $this->portal_enabled = $portalUser !== null;
+        $this->portal_username = $portalUser?->username ?? (
+            filled($employee->employee_code)
+                ? User::generateUniqueUsername('k'.$employee->employee_code)
+                : ''
+        );
         $this->portal_email = $portalUser?->email ?? '';
         $this->portal_password = '';
         $this->portal_password_confirmation = '';
@@ -255,6 +262,14 @@ new #[Layout('layouts.app')] class extends Component
 
         $rules = [
             'portal_enabled' => ['required', 'boolean'],
+            'portal_username' => [
+                'nullable',
+                'string',
+                'min:3',
+                'max:64',
+                'alpha_dash',
+                Rule::unique('users', 'username')->ignore($portalUser?->id),
+            ],
             'portal_email' => [
                 'nullable',
                 'email',
@@ -265,6 +280,14 @@ new #[Layout('layouts.app')] class extends Component
         ];
 
         if ($this->portal_enabled) {
+            $rules['portal_username'] = [
+                'required',
+                'string',
+                'min:3',
+                'max:64',
+                'alpha_dash',
+                Rule::unique('users', 'username')->ignore($portalUser?->id),
+            ];
             $rules['portal_email'] = [
                 'required',
                 'email',
@@ -280,6 +303,7 @@ new #[Layout('layouts.app')] class extends Component
 
         if (! $data['portal_enabled']) {
             $portalUser?->delete();
+            $this->portal_username = '';
             $this->portal_email = '';
             $this->portal_password = '';
             $this->portal_password_confirmation = '';
@@ -289,6 +313,7 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         if ($portalUser) {
+            $portalUser->username = $data['portal_username'];
             $portalUser->email = $data['portal_email'];
             $portalUser->role = User::ROLE_EMPLOYEE;
             $portalUser->employee_id = $employee->id;
@@ -298,7 +323,7 @@ new #[Layout('layouts.app')] class extends Component
             $portalUser->save();
         } else {
             User::query()->forceCreate([
-                'username' => User::generateUniqueUsername('k'.$employee->employee_code),
+                'username' => $data['portal_username'],
                 'email' => $data['portal_email'],
                 'password' => $data['portal_password'],
                 'role' => User::ROLE_EMPLOYEE,
@@ -372,6 +397,7 @@ new #[Layout('layouts.app')] class extends Component
         $this->pin = '';
         $this->pin_confirmation = '';
         $this->portal_enabled = false;
+        $this->portal_username = '';
         $this->portal_email = '';
         $this->portal_password = '';
         $this->portal_password_confirmation = '';
@@ -865,6 +891,12 @@ new #[Layout('layouts.app')] class extends Component
 
                                     @if ($portal_enabled)
                                         <div>
+                                            <label for="portal_username" class="block text-sm font-medium text-gray-700">Username</label>
+                                            <input wire:model="portal_username" id="portal_username" type="text" autocomplete="username" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
+                                            <p class="mt-1 text-xs text-gray-500">Dipakai untuk login dan tampilan di layar absensi device.</p>
+                                            @error('portal_username') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
+                                        </div>
+                                        <div>
                                             <label for="portal_email" class="block text-sm font-medium text-gray-700">Email login</label>
                                             <input wire:model="portal_email" id="portal_email" type="email" autocomplete="off" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 text-sm" />
                                             @error('portal_email') <p class="mt-1 text-sm text-red-600">{{ $message }}</p> @enderror
@@ -886,10 +918,8 @@ new #[Layout('layouts.app')] class extends Component
 
                                     @if ($editingEmployee?->portalUser)
                                         <p class="text-xs text-green-700">
-                                            Portal aktif · username <span class="font-medium">{{ $editingEmployee->portalUser->username }}</span>
-                                            · email {{ $editingEmployee->portalUser->email }}
+                                            Portal aktif · terakhir update {{ $editingEmployee->portalUser->updated_at?->timezone(config('app.timezone'))->format('d/m/Y H:i') }}
                                         </p>
-                                        <p class="text-xs text-gray-500">Ubah username di Settings → Hak Akses.</p>
                                     @endif
 
                                     <div class="flex justify-end pt-2">
