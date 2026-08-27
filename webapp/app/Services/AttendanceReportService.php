@@ -241,38 +241,43 @@ class AttendanceReportService
     }
 
     /**
-     * Status absensi hari ini untuk setiap karyawan aktif (termasuk yang
-     * belum absen sama sekali / "Off"), dipakai di dashboard.
+     * Status absensi per tanggal untuk setiap karyawan aktif (termasuk yang
+     * belum absen sama sekali / "Off"), dipakai di halaman absensi harian.
      *
      * @param  Collection<int, \App\Models\Employee>  $employees
-     * @param  Collection<int, AttendanceLog>  $todayLogs
+     * @param  Collection<int, AttendanceLog>  $dayLogs
+     * @param  string|null  $date  Tanggal lokal Y-m-d; default hari ini (timezone display).
      */
-    public function todayStatusForEmployees(Collection $employees, Collection $todayLogs, ?WorkSchedule $schedule = null): Collection
-    {
+    public function todayStatusForEmployees(
+        Collection $employees,
+        Collection $dayLogs,
+        ?WorkSchedule $schedule = null,
+        ?string $date = null,
+    ): Collection {
         unset($schedule);
-        $logsByEmployee = $todayLogs->groupBy('employee_id');
-        $today = AppTimezone::nowDisplay()->toDateString();
+        $logsByEmployee = $dayLogs->groupBy('employee_id');
+        $date = $date ?? AppTimezone::nowDisplay()->toDateString();
         $resolver = app(ShiftResolver::class);
         $leaveMap = app(LeaveService::class)->approvedLeavesByEmployeeDate(
             $employees->pluck('id'),
-            $today,
-            $today,
+            $date,
+            $date,
         );
 
-        return $employees->map(function ($employee) use ($logsByEmployee, $leaveMap, $today, $resolver) {
+        return $employees->map(function ($employee) use ($logsByEmployee, $leaveMap, $date, $resolver) {
             $logs = $logsByEmployee->get($employee->id, collect())->sortBy('event_time');
-            $resolved = $resolver->resolveDay($employee->id, $today);
+            $resolved = $resolver->resolveDay($employee->id, $date);
             $empSchedule = $resolved->isWorkDay() ? $resolved->schedule : null;
 
-            $row = $this->buildAttendanceRow($logs, $empSchedule, $today);
+            $row = $this->buildAttendanceRow($logs, $empSchedule, $date);
             $row['employee'] = $employee;
             $row['shift_id'] = $empSchedule?->id;
             $row['shift_name'] = $empSchedule?->name;
 
             if (! $row['clock_in'] && ! $row['clock_out']) {
                 if ($resolved->kind === \App\Support\ResolvedShiftDay::KIND_LIBUR_REQUEST
-                    || ($leaveMap[$employee->id][$today] ?? null)) {
-                    $leave = $leaveMap[$employee->id][$today] ?? null;
+                    || ($leaveMap[$employee->id][$date] ?? null)) {
+                    $leave = $leaveMap[$employee->id][$date] ?? null;
                     $row['status'] = 'Cuti';
                     $row['is_leave'] = true;
                     $row['leave_type'] = $leave?->leave_type;

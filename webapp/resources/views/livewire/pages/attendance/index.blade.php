@@ -239,7 +239,7 @@ new #[Layout('layouts.app')] class extends Component
                 ->whereBetween('event_time', [$startUtc, $endUtc])
                 ->get(['id', 'employee_id', 'attendance_type', 'event_time']);
 
-        $rows = $reports->todayStatusForEmployees($employees, $dayLogs)
+        $rows = $reports->todayStatusForEmployees($employees, $dayLogs, null, $selectedDate)
             ->map(function (array $row) use ($selectedDate) {
                 $row['date'] = $selectedDate;
 

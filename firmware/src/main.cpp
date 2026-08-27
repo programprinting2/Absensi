@@ -99,7 +99,6 @@ void recordAttendance(const String &employeeId, const String &employeeName, Atte
     }
 
     bool needsTimeCorrection = !ntp_time::hasValidClockThisBoot();
-    bool isOfflineCapture = !wifi_manager::isConnected() || needsTimeCorrection;
     bool wifiConnected = wifi_manager::isConnected();
     bool serverOk = network_task::isServerReachable();
     bool canEvalOnline = wifiConnected && serverOk && !needsTimeCorrection;
@@ -132,6 +131,9 @@ void recordAttendance(const String &employeeId, const String &employeeName, Atte
         indicator = attendance_rules::evaluateOffline(type);
         scheduleName = "";
     }
+
+    // Tandai offline jika tidak lewat evaluasi server penuh (server mati, WiFi putus, jam belum valid).
+    bool isOfflineCapture = !canEvalOnline || !serverEval;
 
     bool queued = storage_queue::enqueue(employeeId, attendanceTypeToString(type),
                                           method == AttendanceMethod::Fingerprint ? "fingerprint" : "pin",

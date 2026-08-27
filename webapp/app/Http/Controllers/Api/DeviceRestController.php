@@ -90,6 +90,10 @@ class DeviceRestController extends Controller
 
         if ($table === 'attendance_logs') {
             $eventTime = Carbon::parse($data['event_time'])->utc();
+            $isOfflineCapture = (bool) ($data['is_offline_capture'] ?? false);
+
+            // Validasi jadwal saat insert — termasuk sync dari antrian offline.
+            // Scan di hari libur ditolak (422); tidak tercatat & tidak muncul di laporan.
             $guard = app(AttendanceScheduleGuard::class)->check($data['employee_id'], $eventTime);
 
             if (! $guard['allowed']) {
@@ -107,8 +111,8 @@ class DeviceRestController extends Controller
                     'employee_id' => $data['employee_id'],
                     'attendance_type' => $data['attendance_type'],
                     'method' => $data['method'],
-                    'event_time' => Carbon::parse($data['event_time'])->utc(),
-                    'is_offline_capture' => (bool) ($data['is_offline_capture'] ?? false),
+                    'event_time' => $eventTime,
+                    'is_offline_capture' => $isOfflineCapture,
                     'client_uuid' => $data['client_uuid'],
                 ]);
 
