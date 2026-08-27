@@ -8,6 +8,7 @@ struct Employee {
     String id; // uuid
     int employeeCode = 0;
     String fullName;
+    String displayName;
     bool hasPin = false;
 };
 

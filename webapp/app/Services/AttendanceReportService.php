@@ -84,16 +84,24 @@ class AttendanceReportService
         ?Carbon $rangeStart = null,
         ?Carbon $rangeEnd = null,
     ): Collection {
+        // $schedule tetap diterima untuk kompatibilitas pemanggil lama;
+        // perhitungan memakai ShiftResolver per karyawan per tanggal.
+        unset($schedule);
         $rows = $logs
             ->groupBy(fn (AttendanceLog $log) => $log->employee_id.'|'.$this->toLocal($log->event_time)->toDateString())
-            ->map(function (Collection $group) use ($schedule) {
+            ->map(function (Collection $group) {
                 $first = $group->first();
                 $firstLocal = $this->toLocal($first->event_time);
+                $date = $firstLocal->toDateString();
+                $schedule = app(ShiftResolver::class)->forEmployeeOnDate($first->employee_id, $date);
 
-                $row = $this->buildAttendanceRow($group, $schedule, $firstLocal->toDateString());
+                $row = $this->buildAttendanceRow($group, $schedule, $date);
                 $row['employee'] = $first->employee;
-                $row['date'] = $firstLocal->toDateString();
+                $row['date'] = $date;
                 $row['date_label'] = $firstLocal->locale('id')->translatedFormat('l, j M y');
+                $row['shift_id'] = $schedule?->id;
+                $row['shift_name'] = $schedule?->name;
+                $row['shift_crosses_midnight'] = (bool) ($schedule?->crosses_midnight);
 
                 return $row;
             });
@@ -131,6 +139,7 @@ class AttendanceReportService
         $end = $endDisplay->lessThan($today) ? $endDisplay->copy()->startOfDay() : $today;
         $startDisplay = AppTimezone::toDisplay($rangeStart)->startOfDay();
         $existingKeys = $existingKeys->flip();
+        $resolver = app(ShiftResolver::class);
 
         $rows = collect();
 
@@ -148,48 +157,68 @@ class AttendanceReportService
             }
 
             for ($date = $employeeStart->copy(); $date->lessThanOrEqualTo($end); $date->addDay()) {
-                if ($date->isSunday()) {
-                    continue;
-                }
-
                 $key = $employee->id.'|'.$date->toDateString();
 
                 if ($existingKeys->has($key)) {
                     continue;
                 }
 
-                $leave = $leaveMap[$employee->id][$date->toDateString()] ?? null;
+                $day = $date->toDateString();
+                $resolved = $resolver->resolveDay($employee->id, $day);
 
-                if ($leave) {
-                    $rows->put($key, [
-                        'employee' => $employee,
-                        'date' => $date->toDateString(),
-                        'date_label' => $date->copy()->locale('id')->translatedFormat('l, j M y'),
-                        'clock_in' => null,
-                        'break_start' => null,
-                        'break_end' => null,
-                        'clock_out' => null,
-                        'break_duration' => null,
-                        'is_late' => false,
-                        'is_over_break' => false,
-                        'is_early_out' => false,
-                        'is_short_work' => false,
-                        'is_leave' => true,
-                        'leave_type' => $leave->leave_type,
-                        'leave_type_label' => $leave->typeLabel(),
-                        'status' => 'Cuti',
-                        'compliance_ok' => true,
-                        'compliance_issues' => [],
-                        'status_parts' => [],
-                    ]);
+                // Hari libur / tidak dijadwalkan / libur karyawan / libur request → tidak jadi "Tidak Masuk"
+                if (! $resolved->isWorkDay()) {
+                    if (in_array($resolved->kind, [
+                        \App\Support\ResolvedShiftDay::KIND_LIBUR_REQUEST,
+                        \App\Support\ResolvedShiftDay::KIND_LIBUR_KARYAWAN,
+                        \App\Support\ResolvedShiftDay::KIND_LIBUR_HARI,
+                        \App\Support\ResolvedShiftDay::KIND_LIBUR_EVENT,
+                    ], true)) {
+                        $status = match ($resolved->kind) {
+                            \App\Support\ResolvedShiftDay::KIND_LIBUR_REQUEST => 'Cuti',
+                            \App\Support\ResolvedShiftDay::KIND_LIBUR_KARYAWAN => 'Libur Rutin',
+                            default => 'Libur',
+                        };
+                        $leave = $leaveMap[$employee->id][$day] ?? null;
+                        $rows->put($key, [
+                            'employee' => $employee,
+                            'date' => $day,
+                            'date_label' => $date->copy()->locale('id')->translatedFormat('l, j M y'),
+                            'shift_id' => null,
+                            'shift_name' => null,
+                            'shift_crosses_midnight' => false,
+                            'clock_in' => null,
+                            'break_start' => null,
+                            'break_end' => null,
+                            'clock_out' => null,
+                            'break_duration' => null,
+                            'is_late' => false,
+                            'is_over_break' => false,
+                            'is_early_out' => false,
+                            'is_short_work' => false,
+                            'is_leave' => $resolved->kind === \App\Support\ResolvedShiftDay::KIND_LIBUR_REQUEST,
+                            'leave_type' => $leave?->leave_type,
+                            'leave_type_label' => $leave?->typeLabel(),
+                            'status' => $status,
+                            'compliance_ok' => true,
+                            'compliance_issues' => [],
+                            'status_parts' => [],
+                        ]);
+                    }
 
                     continue;
                 }
 
+                $schedule = $resolved->schedule;
+
+                // Wajib masuk tapi tidak ada log → Off (alpha)
                 $rows->put($key, [
                     'employee' => $employee,
-                    'date' => $date->toDateString(),
+                    'date' => $day,
                     'date_label' => $date->copy()->locale('id')->translatedFormat('l, j M y'),
+                    'shift_id' => $schedule?->id,
+                    'shift_name' => $schedule?->name,
+                    'shift_crosses_midnight' => (bool) ($schedule?->crosses_midnight),
                     'clock_in' => null,
                     'break_start' => null,
                     'break_end' => null,
@@ -200,9 +229,9 @@ class AttendanceReportService
                     'is_early_out' => false,
                     'is_short_work' => false,
                     'is_leave' => false,
-                    'status' => 'Tidak Masuk',
+                    'status' => 'Off',
                     'compliance_ok' => false,
-                    'compliance_issues' => ['Tidak masuk'],
+                    'compliance_issues' => ['Off / tidak masuk'],
                     'status_parts' => [],
                 ]);
             }
@@ -212,37 +241,68 @@ class AttendanceReportService
     }
 
     /**
-     * Status absensi hari ini untuk setiap karyawan aktif (termasuk yang
-     * belum absen sama sekali / "Off"), dipakai di dashboard.
+     * Status absensi per tanggal untuk setiap karyawan aktif (termasuk yang
+     * belum absen sama sekali / "Off"), dipakai di halaman absensi harian.
      *
      * @param  Collection<int, \App\Models\Employee>  $employees
-     * @param  Collection<int, AttendanceLog>  $todayLogs
+     * @param  Collection<int, AttendanceLog>  $dayLogs
+     * @param  string|null  $date  Tanggal lokal Y-m-d; default hari ini (timezone display).
      */
-    public function todayStatusForEmployees(Collection $employees, Collection $todayLogs, ?WorkSchedule $schedule = null): Collection
-    {
-        $logsByEmployee = $todayLogs->groupBy('employee_id');
-        $today = AppTimezone::nowDisplay()->toDateString();
+    public function todayStatusForEmployees(
+        Collection $employees,
+        Collection $dayLogs,
+        ?WorkSchedule $schedule = null,
+        ?string $date = null,
+    ): Collection {
+        unset($schedule);
+        $logsByEmployee = $dayLogs->groupBy('employee_id');
+        $date = $date ?? AppTimezone::nowDisplay()->toDateString();
+        $resolver = app(ShiftResolver::class);
         $leaveMap = app(LeaveService::class)->approvedLeavesByEmployeeDate(
             $employees->pluck('id'),
-            $today,
-            $today,
+            $date,
+            $date,
         );
 
-        return $employees->map(function ($employee) use ($logsByEmployee, $schedule, $leaveMap, $today) {
+        return $employees->map(function ($employee) use ($logsByEmployee, $leaveMap, $date, $resolver) {
             $logs = $logsByEmployee->get($employee->id, collect())->sortBy('event_time');
+            $resolved = $resolver->resolveDay($employee->id, $date);
+            $empSchedule = $resolved->isWorkDay() ? $resolved->schedule : null;
 
-            $row = $this->buildAttendanceRow($logs, $schedule, $today);
+            $row = $this->buildAttendanceRow($logs, $empSchedule, $date);
             $row['employee'] = $employee;
+            $row['shift_id'] = $empSchedule?->id;
+            $row['shift_name'] = $empSchedule?->name;
 
-            if (! $row['clock_in'] && ! $row['clock_out'] && ($leaveMap[$employee->id][$today] ?? null)) {
-                $leave = $leaveMap[$employee->id][$today];
-                $row['status'] = 'Cuti';
-                $row['is_leave'] = true;
-                $row['leave_type'] = $leave->leave_type;
-                $row['leave_type_label'] = $leave->typeLabel();
-                $row['compliance_ok'] = true;
-                $row['compliance_issues'] = [];
-                $row['status_parts'] = [];
+            if (! $row['clock_in'] && ! $row['clock_out']) {
+                if ($resolved->kind === \App\Support\ResolvedShiftDay::KIND_LIBUR_REQUEST
+                    || ($leaveMap[$employee->id][$date] ?? null)) {
+                    $leave = $leaveMap[$employee->id][$date] ?? null;
+                    $row['status'] = 'Cuti';
+                    $row['is_leave'] = true;
+                    $row['leave_type'] = $leave?->leave_type;
+                    $row['leave_type_label'] = $leave?->typeLabel();
+                    $row['compliance_ok'] = true;
+                    $row['compliance_issues'] = [];
+                    $row['status_parts'] = [];
+                } elseif (in_array($resolved->kind, [
+                    \App\Support\ResolvedShiftDay::KIND_LIBUR_KARYAWAN,
+                    \App\Support\ResolvedShiftDay::KIND_LIBUR_HARI,
+                    \App\Support\ResolvedShiftDay::KIND_LIBUR_EVENT,
+                    \App\Support\ResolvedShiftDay::KIND_UNSCHEDULED,
+                ], true)) {
+                    $row['status'] = match ($resolved->kind) {
+                        \App\Support\ResolvedShiftDay::KIND_UNSCHEDULED => 'Jadwal belum diatur',
+                        \App\Support\ResolvedShiftDay::KIND_LIBUR_KARYAWAN => 'Libur Rutin',
+                        default => 'Libur',
+                    };
+                    $row['is_leave'] = false;
+                    $row['compliance_ok'] = true;
+                    $row['compliance_issues'] = [];
+                    $row['status_parts'] = [];
+                } elseif ($resolved->isWorkDay()) {
+                    $row['status'] = 'Off';
+                }
             }
 
             return $row;

@@ -14,7 +14,7 @@ namespace network_task {
 namespace {
 
 const unsigned long DEVICE_ID_RETRY_MS = 10000;
-const unsigned long EMPLOYEE_CACHE_REFRESH_MS = 5UL * 60UL * 1000UL;
+const unsigned long EMPLOYEE_CACHE_REFRESH_MS = 60UL * 1000UL;
 const unsigned long DEVICE_HEARTBEAT_MS = 30UL * 1000UL;
 
 String deviceCodeToResolve;
@@ -23,6 +23,7 @@ String deviceId;
 // Diakses dari dua core — pakai volatile + section kritis seperlunya.
 volatile bool deviceIdResolved = false;
 volatile bool cacheRefreshRequested = false;
+volatile bool cacheRefreshSyncWait = false;
 volatile bool hasPendingCommand = false;
 volatile bool commandInFlight = false; // sudah diserahkan ke core 1, hasil belum kembali
 volatile bool hasCommandResult = false;
@@ -110,6 +111,7 @@ void taskLoop(void *param) {
             cacheRefreshRequested = false;
             employee_cache::refresh(deviceId);
             lastCacheRefreshMs = millis();
+            cacheRefreshSyncWait = false;
         }
 
         if (now - lastConfigRefreshMs >= DEVICE_CONFIG_REFRESH_MS) {
@@ -225,6 +227,22 @@ bool takePendingCommand(command_poller::PendingCommand &outCommand) {
 
 void requestCacheRefresh() {
     cacheRefreshRequested = true;
+}
+
+bool refreshCacheSync(unsigned long timeoutMs) {
+    cacheRefreshRequested = true;
+    cacheRefreshSyncWait = true;
+
+    unsigned long start = millis();
+    while (cacheRefreshSyncWait && millis() - start < timeoutMs) {
+        delay(50);
+    }
+
+    bool completed = !cacheRefreshSyncWait;
+    if (!completed) {
+        cacheRefreshSyncWait = false;
+    }
+    return completed;
 }
 
 void requestSyncNow() {

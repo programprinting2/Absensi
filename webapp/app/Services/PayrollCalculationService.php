@@ -8,7 +8,6 @@ use App\Models\PayrollEntry;
 use App\Models\PayrollEntryDetail;
 use App\Models\PayrollPeriod;
 use App\Models\PayrollSetting;
-use App\Models\WorkSchedule;
 use App\Support\AppTimezone;
 use Illuminate\Support\Facades\DB;
 
@@ -398,8 +397,6 @@ class PayrollCalculationService
 
     private function getAttendanceSummary(Employee $employee, PayrollPeriod $period): array
     {
-        $schedule = WorkSchedule::active();
-
         $startDate = $period->period_start->toDateString();
         $endDate = $period->period_end->toDateString();
         $today = AppTimezone::nowDisplay()->toDateString();
@@ -429,9 +426,10 @@ class PayrollCalculationService
             ->orderBy('event_time')
             ->get();
 
+        // Schedule per hari di-resolve di dalam AttendanceReportService (ShiftResolver).
         $pivoted = $this->attendanceService->pivotByEmployeeAndDate(
             $logs,
-            $schedule,
+            null,
             collect([$employee]),
             $startUtc,
             $endUtc,
@@ -442,7 +440,7 @@ class PayrollCalculationService
 
         return [
             'late_count' => $pivoted->where('is_late', true)->count(),
-            'absent_days' => $pivoted->where('status', 'Tidak Masuk')->count(),
+            'absent_days' => $pivoted->whereIn('status', ['Tidak Masuk', 'Off'])->count(),
             'early_out_count' => $pivoted->where('is_early_out', true)->count(),
             'over_break_count' => $pivoted->where('is_over_break', true)->count(),
             'overtime_hours' => round($overtimeMinutes / 60, 2),

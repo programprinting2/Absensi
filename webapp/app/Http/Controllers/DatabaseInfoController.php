@@ -591,7 +591,7 @@ SQL);
 
         $token = 'mrg_' . Str::uuid()->toString();
         $user = Auth::user();
-        $userName = $user->name ?? $user->username ?? 'System';
+        $userName = $user?->systemLabel() ?? 'System';
         $mode = $payload['mode'];
 
         session()->save();
@@ -645,7 +645,7 @@ SQL);
 
         $token = (string) $payload['token'];
         $user = Auth::user();
-        $userName = $user->name ?? $user->username ?? 'System';
+        $userName = $user?->systemLabel() ?? 'System';
         $mode = (string) $payload['mode'];
 
         // Lepas lock session agar request polling progress tetap bisa jalan paralel.

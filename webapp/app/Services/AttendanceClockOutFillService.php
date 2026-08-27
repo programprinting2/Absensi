@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\AttendanceLog;
 use App\Models\Device;
 use App\Models\Employee;
-use App\Models\WorkSchedule;
 use App\Support\AppTimezone;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -34,6 +33,17 @@ class AttendanceClockOutFillService
             ->where('id', '!=', $employee->id)
             ->whereRaw('LOWER(TRIM(department)) = ?', [mb_strtolower($department)])
             ->pluck('id');
+
+        if ($peerIds->isEmpty()) {
+            return [];
+        }
+
+        $resolver = app(ShiftResolver::class);
+        $myScheduleId = $resolver->forEmployeeOnDate($employee, $date)?->id;
+        $scheduleMap = $resolver->scheduleIdsForEmployeesOnDate($peerIds, $date);
+        $peerIds = $peerIds->filter(
+            fn ($id) => ($scheduleMap[(string) $id] ?? null) === $myScheduleId
+        )->values();
 
         if ($peerIds->isEmpty()) {
             return [];
@@ -82,12 +92,13 @@ class AttendanceClockOutFillService
         ?string $peerEmployeeId = null,
     ): array {
         if ($mode === 'schedule') {
-            $schedule = WorkSchedule::active();
+            $schedule = app(ShiftResolver::class)->forEmployeeOnDate($employee, $date);
             $time = substr((string) ($schedule?->clock_out_time ?: '17:00'), 0, 5);
+            $shiftLabel = $schedule?->name ? ' · '.$schedule->name : '';
 
             return [
                 'time' => $time,
-                'note' => 'HRD isi: jam pulang kantor ('.$time.')',
+                'note' => 'HRD isi: jam pulang shift ('.$time.$shiftLabel.')',
             ];
         }
 

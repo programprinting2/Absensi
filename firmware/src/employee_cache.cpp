@@ -67,6 +67,13 @@ void fillEmployee(JsonObject obj, Employee &out) {
     out.id = obj["id"].as<String>();
     out.employeeCode = obj["employee_code"].as<int>();
     out.fullName = obj["full_name"].as<String>();
+    String username = obj["username"].as<String>();
+    if (username.length() == 0) {
+        out.displayName = out.fullName;
+    } else {
+        username.toUpperCase();
+        out.displayName = username;
+    }
     out.hasPin = !obj["pin_hash"].isNull();
 }
 

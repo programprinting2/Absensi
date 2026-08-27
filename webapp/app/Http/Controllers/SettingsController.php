@@ -7,7 +7,6 @@ use App\Models\Device;
 use App\Models\PayrollSetting;
 use App\Models\Role;
 use App\Models\User;
-use App\Models\WorkSchedule;
 use App\Support\AppTimezone;
 use App\Support\MenuRegistry;
 use Illuminate\Http\Request;
@@ -48,8 +47,8 @@ class SettingsController extends Controller
 
         $accessUsers = User::query()
             ->with('employee:id,full_name,employee_code')
-            ->orderBy('name')
-            ->get(['id', 'name', 'email', 'role', 'employee_id', 'created_at']);
+            ->orderBy('username')
+            ->get(['id', 'username', 'email', 'role', 'employee_id', 'created_at']);
 
         $staffRoles = $roles->where('slug', '!=', 'employee')->values();
 
@@ -57,8 +56,6 @@ class SettingsController extends Controller
             'devices' => $devices,
             'company' => CompanySetting::active(),
             'payrollSettings' => PayrollSetting::active(),
-            'schedule' => WorkSchedule::active() ?? new WorkSchedule(['name' => 'Jadwal Default']),
-            'schedules' => WorkSchedule::query()->orderByDesc('is_active')->orderBy('name')->get(),
             'timezoneOptions' => AppTimezone::options(),
             'activeTab' => session('settings_tab', request('tab', 'perangkat')),
             'roles' => $roles,

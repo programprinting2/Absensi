@@ -40,10 +40,22 @@ void handleFailedUpload(storage_queue::PendingEvent &event, int httpCode) {
         return;
     }
 
-    if (retryCount >= storage_queue::maxRetryCount()) {
-        Serial.print(F("[sync] Batas retry tercapai, buang antrian: "));
-        Serial.println(event.path);
-        storage_queue::remove(event.path);
+    // Antrian offline tidak pernah dibuang otomatis — tetap dicoba sampai server menerima.
+    Serial.print(F("[sync] Akan coba lagi nanti (retry "));
+    Serial.print(retryCount);
+    Serial.print(F("): "));
+    Serial.println(event.path);
+}
+
+void sortEventsByTime(storage_queue::PendingEvent *events, int count) {
+    for (int i = 1; i < count; i++) {
+        storage_queue::PendingEvent key = events[i];
+        int j = i - 1;
+        while (j >= 0 && events[j].eventTime > key.eventTime) {
+            events[j + 1] = events[j];
+            j--;
+        }
+        events[j + 1] = key;
     }
 }
 
@@ -101,6 +113,8 @@ void loop() {
         return;
     }
 
+    sortEventsByTime(events, count);
+
     Serial.print(F("[sync] Memproses "));
     Serial.print(count);
     Serial.println(F(" item antrian..."));
@@ -126,6 +140,14 @@ void loop() {
 
         if (result == supabase_client::InsertResult::Success ||
             result == supabase_client::InsertResult::DuplicateIgnored) {
+            storage_queue::remove(events[i].path);
+            continue;
+        }
+
+        if (result == supabase_client::InsertResult::Rejected) {
+            // 422 = Laravel menolak (mis. hari libur) — buang antrian, tidak disimpan.
+            Serial.print(F("[sync] Ditolak server, buang antrian: "));
+            Serial.println(events[i].path);
             storage_queue::remove(events[i].path);
             continue;
         }

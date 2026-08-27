@@ -2,7 +2,6 @@
 
 use App\Models\AttendanceDayReason;
 use App\Models\Employee;
-use App\Models\WorkSchedule;
 use App\Support\AppTimezone;
 use App\Services\AttendanceReportService;
 use Illuminate\Support\Carbon;
@@ -29,7 +28,7 @@ new #[Layout('layouts.app')] class extends Component
 
         $rows = $reports->pivotByEmployeeAndDate(
             $logs,
-            WorkSchedule::active(),
+            null,
             $employees,
             $rangeStart,
             $rangeEnd,
@@ -72,7 +71,7 @@ new #[Layout('layouts.app')] class extends Component
                 'total' => $group->count(),
                 'ok' => $group->where('compliance_ok', true)->count(),
                 'not_ok' => $group->filter(fn ($r) => empty($r['compliance_ok']))->count(),
-                'tidak_masuk' => $group->where('status', 'Tidak Masuk')->count(),
+                'tidak_masuk' => $group->whereIn('status', ['Tidak Masuk', 'Off'])->count(),
                 'terlambat' => $group->where('is_late', true)->count(),
                 'istirahat_lebih' => $group->where('is_over_break', true)->count(),
                 'pulang_awal' => $group->where('is_early_out', true)->count(),

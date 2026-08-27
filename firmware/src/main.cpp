@@ -4,6 +4,7 @@
 #include "buzzer_handler.h"
 #include "command_poller.h"
 #include "config.h"
+#include "dashboard_client.h"
 #include "device_config.h"
 #include "employee_cache.h"
 #include "fingerprint_handler.h"
@@ -98,7 +99,41 @@ void recordAttendance(const String &employeeId, const String &employeeName, Atte
     }
 
     bool needsTimeCorrection = !ntp_time::hasValidClockThisBoot();
-    bool isOfflineCapture = !wifi_manager::isConnected() || needsTimeCorrection;
+    bool wifiConnected = wifi_manager::isConnected();
+    bool serverOk = network_task::isServerReachable();
+    bool canEvalOnline = wifiConnected && serverOk && !needsTimeCorrection;
+
+    time_t breakStartForEval = 0;
+    if (type == AttendanceType::BreakEnd) {
+        attendance_rules::loadBreakStart(employeeId, now, breakStartForEval);
+    }
+
+    attendance_rules::AttendanceIndicator indicator;
+    bool allowed = true;
+    String scheduleName;
+    bool serverEval = false;
+
+    if (canEvalOnline) {
+        serverEval = dashboard_client::evaluateAttendance(
+            employeeId, attendanceTypeToString(type), now, breakStartForEval, indicator,
+            allowed, scheduleName);
+        if (serverEval && !allowed) {
+            buzzer_handler::beepFail();
+            lcd_ui::showAttendanceRejected(indicator.barText, employeeName);
+            lastResultWasFailure = true;
+            awaitingFingerLift = true;
+            state = AppState::ShowResult;
+            return;
+        }
+    }
+
+    if (!serverEval) {
+        indicator = attendance_rules::evaluateOffline(type);
+        scheduleName = "";
+    }
+
+    // Tandai offline jika tidak lewat evaluasi server penuh (server mati, WiFi putus, jam belum valid).
+    bool isOfflineCapture = !canEvalOnline || !serverEval;
 
     bool queued = storage_queue::enqueue(employeeId, attendanceTypeToString(type),
                                           method == AttendanceMethod::Fingerprint ? "fingerprint" : "pin",
@@ -112,16 +147,18 @@ void recordAttendance(const String &employeeId, const String &employeeName, Atte
 
     network_task::requestSyncNow();
 
-    attendance_rules::AttendanceIndicator indicator =
-        attendance_rules::evaluate(employeeId, type, now);
+    if (type == AttendanceType::BreakStart) {
+        attendance_rules::saveBreakStart(employeeId, now);
+    }
+
+    if (type == AttendanceType::BreakEnd) {
+        attendance_rules::markBreakEnded(employeeId);
+    }
 
     buzzer_handler::beepSuccess();
     lcd_ui::showAttendanceResult(type, employeeName, attendanceTypeToLabel(type),
-                                 formatClock(now), indicator);
+                                 formatClock(now), indicator, scheduleName);
     lastResultWasFailure = false;
-    // Tunggu jari yang barusan absen terangkat dulu sebelum menerima scan
-    // baru -- supaya orang berikutnya tetap bisa langsung scan begitu jari
-    // sebelumnya lepas, tanpa risiko jari yang sama ke-scan dobel.
     awaitingFingerLift = true;
     state = AppState::ShowResult;
 }
@@ -134,8 +171,27 @@ void recordFailure(const String &reason) {
     state = AppState::ShowResult;
 }
 
-// Sensor cocok slot tapi mapping sudah tidak ada (template hantu setelah hapus).
-void handleFingerprintRejected(int slotId, const String &reason) {
+bool tryMatchEmployeeBySlot(int slotId, employee_cache::Employee &employee) {
+    if (employee_cache::findBySlotId(slotId, employee)) {
+        return true;
+    }
+
+    Serial.println(F("[fp] slot tidak di cache, refresh dari server..."));
+    network_task::refreshCacheSync(3000);
+    if (employee_cache::findBySlotId(slotId, employee)) {
+        Serial.println(F("[fp] slot ditemukan setelah refresh cache"));
+        return true;
+    }
+    return false;
+}
+
+void handleFingerprintMatch(int slotId) {
+    employee_cache::Employee employee;
+    if (tryMatchEmployeeBySlot(slotId, employee)) {
+        recordAttendance(employee.id, employee.displayName, currentMode, AttendanceMethod::Fingerprint);
+        return;
+    }
+
     if (slotId >= 0) {
         if (fingerprint_handler::deleteAtSlot(slotId)) {
             Serial.print(F("[fp] orphan slot "));
@@ -145,7 +201,12 @@ void handleFingerprintRejected(int slotId, const String &reason) {
         network_task::requestCacheRefresh();
     }
     fingerprint_handler::indicateFailure();
-    recordFailure(reason);
+    recordFailure("Sidik Jari Tidak Dikenali");
+}
+
+void handleFingerprintNoMatch() {
+    fingerprint_handler::indicateFailure();
+    recordFailure("Sidik Jari Tidak Dikenali");
 }
 
 void redrawIdle(bool force = false) {
@@ -224,23 +285,6 @@ String maskedPinDisplay(const String &buffer) {
 void handleEnrollFlow() {
     network_task::CommandResult result;
     result.commandId = activeCommand.id;
-
-    // Command enroll lama masih pending di server (mis. setelah reboot) —
-    // skip jika karyawan sudah terdaftar di cache device ini.
-    int existingSlot = -1;
-    if (activeCommand.employeeId.length() > 0 &&
-        employee_cache::findSlotForEmployee(activeCommand.employeeId, existingSlot)) {
-        Serial.print(F("[enroll] sudah terdaftar, skip command slot="));
-        Serial.println(existingSlot);
-        result.success = true;
-        result.slotId = existingSlot;
-        result.employeeId = activeCommand.employeeId;
-        lcd_ui::showEnrollScreen("Daftarkan sidik jari !", activeCommand.employeeName,
-                                 activeCommand.employeeCode, lcd_ui::COLOR_GREEN, "Sudah terdaftar");
-        network_task::submitCommandResult(result);
-        delay(1500);
-        return;
-    }
 
     int maxSlots = fingerprint_handler::capacity();
     if (maxSlots <= 0) {
@@ -479,19 +523,13 @@ void loop() {
                 break;
             }
 
-            int slotId = fingerprint_handler::pollForMatch();
+            int slotId = fingerprint_handler::pollForMatchWithRetry();
             if (slotId >= 0) {
-                employee_cache::Employee employee;
-                if (employee_cache::findBySlotId(slotId, employee)) {
-                    recordAttendance(employee.id, employee.fullName, currentMode, AttendanceMethod::Fingerprint);
-                } else {
-                    handleFingerprintRejected(slotId, "Sidik Jari Tidak Dikenali");
-                }
+                handleFingerprintMatch(slotId);
                 break;
             }
             if (slotId == -2) {
-                fingerprint_handler::indicateFailure();
-                recordFailure("Sidik Jari Tidak Dikenali");
+                handleFingerprintNoMatch();
                 break;
             }
             break;
@@ -510,7 +548,7 @@ void loop() {
                 employee_cache::Employee employee;
                 if (employee_cache::findByEmployeeCode(inputBuffer.toInt(), employee)) {
                     pendingEmployeeId = employee.id;
-                    pendingEmployeeName = employee.fullName;
+                    pendingEmployeeName = employee.displayName;
                     inputBuffer = "";
                     state = AppState::InputPin;
                     bool wifiConnected = false;
@@ -616,20 +654,14 @@ void loop() {
             }
 
             if (canScanNow) {
-                int slotId = fingerprint_handler::pollForMatch();
+                int slotId = fingerprint_handler::pollForMatchWithRetry();
                 if (slotId >= 0) {
-                    employee_cache::Employee employee;
-                    if (employee_cache::findBySlotId(slotId, employee)) {
-                        recordAttendance(employee.id, employee.fullName, currentMode, AttendanceMethod::Fingerprint);
-                    } else {
-                        handleFingerprintRejected(slotId, "Sidik Jari Tidak Dikenali");
-                    }
+                    handleFingerprintMatch(slotId);
                     shownAt = millis();
                     break;
                 }
                 if (slotId == -2) {
-                    fingerprint_handler::indicateFailure();
-                    recordFailure("Sidik Jari Tidak Dikenali");
+                    handleFingerprintNoMatch();
                     shownAt = millis();
                     break;
                 }

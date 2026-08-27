@@ -94,6 +94,55 @@ void printCenteredFit(int y, uint8_t size, const String &text, uint16_t fg, uint
     printCentered(y, size, out, fg, bg);
 }
 
+// Teks center: turunkan ukuran font atau bagi 2 baris (kata) supaya tidak
+// meluber / wrap acak di tepi layar 128px.
+void printCenteredSmart(int y, const String &text, uint16_t fg, uint16_t bg, int maxLines = 2) {
+    String t = text;
+    if (t.length() == 0) {
+        return;
+    }
+
+    const int maxW = tft.width() - 8;
+
+    for (uint8_t size = 2; size >= 1; size--) {
+        int w = textWidth(t, size);
+        if (w <= maxW) {
+            printCentered(y, size, t, fg, bg);
+            return;
+        }
+    }
+
+    if (maxLines < 2) {
+        printCenteredFit(y, 1, t, fg, bg);
+        return;
+    }
+
+    const uint8_t size = 1;
+    const int lineH = 10;
+    const int maxChars = maxW / 6;
+
+    int split = -1;
+    for (int i = min((int)t.length(), maxChars); i > 0; i--) {
+        if (t.charAt(i - 1) == ' ') {
+            split = i - 1;
+            break;
+        }
+    }
+
+    if (split <= 0) {
+        printCenteredFit(y, size, t, fg, bg);
+        return;
+    }
+
+    String line1 = t.substring(0, split);
+    String line2 = t.substring(split + 1);
+    line2.trim();
+    printCentered(y, size, line1, fg, bg);
+    if (line2.length() > 0) {
+        printCentered(y + lineH, size, line2, fg, bg);
+    }
+}
+
 void drawStatusIcons(bool wifiOk, bool sensorOk, bool serverOk, uint16_t color) {
     int x = tft.width() - 28;
     tft.drawBitmap(x, 2, wifiOk ? ICON_WIFI : ICON_X, 8, 8, color);
@@ -147,6 +196,37 @@ void drawModeBadgeFilled(const String &modeLabel, int y) {
     tft.fillRoundRect(x, y, boxW, boxH, boxH / 2, TFT_CYAN);
     tft.setTextColor(TFT_BLACK, TFT_CYAN);
     tft.setCursor(x + padX, y + padY);
+    tft.print(label);
+}
+
+void drawShiftModeBadge(const String &modePrefix, const String &shiftName, int y) {
+    String label = modePrefix;
+    label.toUpperCase();
+    if (shiftName.length() > 0) {
+        label += " : " + shiftName;
+    }
+    label.toUpperCase();
+
+    uint8_t textSize = 2;
+    int w = textWidth(label, textSize);
+    const int maxW = tft.width() - 8;
+    if (w > maxW) {
+        textSize = 1;
+        w = textWidth(label, textSize);
+    }
+
+    int padX = 8;
+    int padY = 3;
+    int boxW = min(w + padX * 2, tft.width() - 4);
+    int boxH = 8 * textSize + padY * 2;
+    int x = (tft.width() - boxW) / 2;
+
+    tft.fillRoundRect(x, y, boxW, boxH, boxH / 2, TFT_CYAN);
+    tft.setTextColor(TFT_BLACK, TFT_CYAN);
+    tft.setTextSize(textSize);
+    int textX = x + (boxW - min(w, boxW - padX * 2)) / 2;
+    int textY = y + padY;
+    tft.setCursor(textX, textY);
     tft.print(label);
 }
 
@@ -496,7 +576,8 @@ void showEnrollPrompt(const String &employeeName, int employeeCode, int step, in
 
 void showAttendanceResult(AttendanceType type, const String &employeeName,
                           const String &modeLabel, const String &timeText,
-                          const attendance_rules::AttendanceIndicator &indicator) {
+                          const attendance_rules::AttendanceIndicator &indicator,
+                          const String &scheduleName) {
     invalidateIdle();
     invalidateInput();
     clearWhite();
@@ -507,9 +588,31 @@ void showAttendanceResult(AttendanceType type, const String &employeeName,
 
     printCentered(8, 1, texts.header, TFT_BLACK, TFT_WHITE);
     printCentered(26, 2, employeeName, TFT_NAVY, TFT_WHITE);
-    drawModeBadgeFilled(modeLabel, 48);
-    printCentered(72, 4, timeText, TFT_BLACK, TFT_WHITE);
+
+    if ((type == AttendanceType::ClockIn || type == AttendanceType::ClockOut) &&
+        scheduleName.length() > 0) {
+        drawShiftModeBadge(modeLabel, scheduleName, 44);
+        printCentered(72, 4, timeText, TFT_BLACK, TFT_WHITE);
+    } else {
+        drawModeBadgeFilled(modeLabel, 48);
+        printCentered(72, 4, timeText, TFT_BLACK, TFT_WHITE);
+    }
     drawColorBar(barColor, indicator.barText, lightTextOnRed);
+}
+
+void showAttendanceRejected(const String &title, const String &employeeName) {
+    invalidateIdle();
+    invalidateInput();
+    tft.fillScreen(TFT_RED);
+
+    String titleUp = title;
+    titleUp.toUpperCase();
+
+    // Area atas: status (mis. TIDAK ADA JADWAL)
+    printCenteredSmart(22, titleUp, TFT_WHITE, TFT_RED, 2);
+
+    // Area bawah: username / nama — font kecil, dipotong jika perlu
+    printCenteredFit(88, 1, employeeName, TFT_WHITE, TFT_RED);
 }
 
 void showAttendanceFailed(const String &reason) {

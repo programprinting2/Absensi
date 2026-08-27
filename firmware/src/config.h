@@ -33,7 +33,7 @@
 
 // Match di sensor dengan confidence di bawah ini dianggap gagal (menyaring
 // template "hantu" di modul ZW111 klon).
-#define MIN_MATCH_CONFIDENCE 40
+#define MIN_MATCH_CONFIDENCE 35
 
 // Pin TFT ST7735 — FIXED oleh jalur PCB expansion board, jangan diubah
 // kecuali memang pindah ke expansion board lain.

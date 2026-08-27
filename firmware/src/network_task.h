@@ -33,6 +33,10 @@ bool takePendingCommand(command_poller::PendingCommand &outCommand);
 // enroll selesai). Non-blocking: cuma menaikkan flag.
 void requestCacheRefresh();
 
+// Minta refresh cache lalu tunggu hingga selesai (maks. timeoutMs).
+// Dipakai saat scan cocok di sensor tapi mapping belum ada di cache lokal.
+bool refreshCacheSync(unsigned long timeoutMs = 3000);
+
 // Minta upload antrian absensi segera (mis. setelah absen baru).
 void requestSyncNow();
 

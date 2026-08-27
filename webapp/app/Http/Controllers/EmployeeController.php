@@ -79,6 +79,7 @@ class EmployeeController extends Controller
         ]);
 
         $employee->fill(collect($data)->except(['pin', 'pin_confirmation', 'is_active'])->toArray());
+        $wasActive = (bool) $employee->is_active;
         $employee->is_active = $data['is_active'];
 
         if (! empty($data['pin'])) {
@@ -89,6 +90,10 @@ class EmployeeController extends Controller
         }
 
         $employee->save();
+
+        if ($wasActive && ! $employee->is_active) {
+            app(\App\Services\ShiftGroupService::class)->deactivateEmployee($employee);
+        }
 
         EmployeeListUpdated::dispatch();
 
@@ -136,7 +141,6 @@ class EmployeeController extends Controller
         }
 
         if ($portalUser) {
-            $portalUser->name = $employee->full_name;
             $portalUser->email = $data['portal_email'];
             $portalUser->role = User::ROLE_EMPLOYEE;
             $portalUser->employee_id = $employee->id;
@@ -147,7 +151,7 @@ class EmployeeController extends Controller
         } else {
             $portal = new User;
             $portal->forceFill([
-                'name' => $employee->full_name,
+                'username' => User::generateUniqueUsername('k'.$employee->employee_code),
                 'email' => $data['portal_email'],
                 'password' => $data['portal_password'],
                 'role' => User::ROLE_EMPLOYEE,

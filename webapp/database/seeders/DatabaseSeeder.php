@@ -19,7 +19,7 @@ class DatabaseSeeder extends Seeder
 
         $user = new User;
         $user->forceFill([
-            'name' => 'Test User',
+            'username' => 'admin',
             'email' => 'test@example.com',
             'password' => 'password',
             'role' => User::ROLE_ADMIN,

@@ -171,9 +171,29 @@ int pollForMatch() {
         return -2;
     }
     if (finger.confidence < MIN_MATCH_CONFIDENCE) {
+        Serial.print(F("[fp] confidence rendah: "));
+        Serial.println(finger.confidence);
         return -2; // cocok lemah / template sisa di flash sensor
     }
     return finger.fingerID;
+}
+
+int pollForMatchWithRetry(int maxAttempts) {
+    if (maxAttempts < 1) {
+        maxAttempts = 1;
+    }
+
+    int result = -1;
+    for (int attempt = 0; attempt < maxAttempts; attempt++) {
+        result = pollForMatch();
+        if (result >= 0 || result == -1) {
+            return result;
+        }
+        if (attempt < maxAttempts - 1) {
+            delay(100);
+        }
+    }
+    return result;
 }
 
 void indicateFailure() {
