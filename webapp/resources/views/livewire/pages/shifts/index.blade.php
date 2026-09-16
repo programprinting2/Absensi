@@ -276,10 +276,12 @@ new #[Layout('layouts.app')] class extends Component
             $this->exitCalendarEditMode();
         } else {
             $this->calendarEditMode = true;
-            $anchorStart = $this->activeRepeatingAnchorStart();
-            if ($anchorStart !== null) {
+            if ($this->activeRepeatingAnchorStart() !== null) {
+                $calendar = app(ShiftCalendarService::class);
                 $this->calendarViewMode = 'block';
-                $this->blockStart = $anchorStart;
+                $this->blockStart = $calendar->blockStartContainingDate(
+                    AppTimezone::nowDisplay()->toDateString(),
+                );
             }
             $this->pruneSelectedDatesToEditable();
         }
@@ -339,28 +341,34 @@ new #[Layout('layouts.app')] class extends Component
 
     private function isDateInActiveRepeatingAnchor(string $date): bool
     {
-        $anchorStart = $this->activeRepeatingAnchorStart();
-        if ($anchorStart === null) {
+        if ($this->activeRepeatingAnchorStart() === null) {
             return true;
         }
 
-        $anchor = Carbon::parse($anchorStart, AppTimezone::display())->startOfDay();
-        $candidate = Carbon::parse($date, AppTimezone::display())->startOfDay();
+        if ($this->calendarViewMode === 'block' && $this->blockStart !== '') {
+            return $this->isDateInViewBlock($date, $this->blockStart);
+        }
 
-        return $candidate->betweenIncluded($anchor, $anchor->copy()->addDays(27));
+        return $this->isCalendarDateInView($date);
+    }
+
+    private function isDateInViewBlock(string $date, string $blockStart): bool
+    {
+        $block = app(ShiftCalendarService::class)->fourWeekBlock($blockStart);
+
+        return collect($block['weeks'])->flatten()->contains($date);
     }
 
     private function ensureRepeatingAnchorView(): bool
     {
-        $anchorStart = $this->activeRepeatingAnchorStart();
         if (
-            $anchorStart === null
-            || ($this->calendarViewMode === 'block' && $this->blockStart === $anchorStart)
+            $this->activeRepeatingAnchorStart() === null
+            || $this->calendarViewMode === 'block'
         ) {
             return true;
         }
 
-        Toast::error('Halaman ini hanya dapat dilihat. Kembali ke blok 4 minggu acuan untuk melakukan perubahan.', $this);
+        Toast::error('Saat pola berulang aktif, perubahan hanya dapat dilakukan di tampilan Blok 4 Minggu.', $this);
 
         return false;
     }
@@ -442,7 +450,7 @@ new #[Layout('layouts.app')] class extends Component
 
         if (! $this->isCalendarDateEditable($date)) {
             $message = $this->activeRepeatingAnchorStart() !== null
-                ? 'Saat pola berulang aktif, perubahan hanya dapat dilakukan pada blok 4 minggu acuan.'
+                ? 'Saat pola berulang aktif, perubahan hanya dapat dilakukan pada blok 4 minggu yang sedang ditampilkan.'
                 : 'Hari di luar bulan ini tidak dapat diubah di tampilan Kalender.';
             Toast::error($message, $this);
 
@@ -471,7 +479,7 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         if ($mode === 'month' && $this->calendarEditMode && $this->activeRepeatingAnchorStart() !== null) {
-            Toast::error('Mode pola berulang hanya dapat diatur dari Blok 4 Minggu acuan.', $this);
+            Toast::error('Mode pola berulang hanya dapat diatur dari tampilan Blok 4 Minggu.', $this);
 
             return;
         }
@@ -498,15 +506,16 @@ new #[Layout('layouts.app')] class extends Component
         $this->rememberCalendarPreferences();
     }
 
-    public function goToRepeatingAnchor(): void
+    public function goToCurrentRepeatingBlock(ShiftCalendarService $calendar): void
     {
-        $anchorStart = $this->activeRepeatingAnchorStart();
-        if ($anchorStart === null) {
+        if ($this->activeRepeatingAnchorStart() === null) {
             return;
         }
 
         $this->calendarViewMode = 'block';
-        $this->blockStart = $anchorStart;
+        $this->blockStart = $calendar->blockStartContainingDate(
+            AppTimezone::nowDisplay()->toDateString(),
+        );
         $this->selectedDates = [];
         $this->rememberCalendarPreferences();
     }
@@ -1842,21 +1851,21 @@ new #[Layout('layouts.app')] class extends Component
         }
 
         $repeatingPatternActive = $isCalendar && $activeTemplate?->is_default === true;
-        $repeatingAnchorStart = $repeatingPatternActive
-            ? ($activeTemplate->payload['anchor_start'] ?? null)
+        $currentRepeatingBlockStart = $repeatingPatternActive
+            ? $calendar->blockStartContainingDate(AppTimezone::nowDisplay()->toDateString())
             : null;
-        $repeatingAnchorEnd = is_string($repeatingAnchorStart) && $repeatingAnchorStart !== ''
-            ? Carbon::parse($repeatingAnchorStart, AppTimezone::display())->addDays(27)->toDateString()
+        $currentRepeatingBlockEnd = is_string($currentRepeatingBlockStart) && $currentRepeatingBlockStart !== ''
+            ? Carbon::parse($currentRepeatingBlockStart, AppTimezone::display())->addDays(27)->toDateString()
             : null;
-        $viewingRepeatingAnchor = ! $repeatingPatternActive
+        $viewingCurrentRepeatingBlock = ! $repeatingPatternActive
             || (
                 $this->calendarViewMode === 'block'
-                && $repeatingAnchorStart !== null
-                && $this->blockStart === $repeatingAnchorStart
+                && $currentRepeatingBlockStart !== null
+                && $this->blockStart === $currentRepeatingBlockStart
             );
         $repeatingEditLocked = $this->calendarEditMode
             && $repeatingPatternActive
-            && ! $viewingRepeatingAnchor;
+            && ! $viewingCurrentRepeatingBlock;
 
         $selectedTemplateForRepeating = null;
         $selectedTemplateRepeatingActive = false;
@@ -1892,9 +1901,9 @@ new #[Layout('layouts.app')] class extends Component
             'recentSwaps' => $recentSwaps,
             'pendingSwapCount' => $pendingSwapCount,
             'repeatingPatternActive' => $repeatingPatternActive,
-            'repeatingAnchorStart' => $repeatingAnchorStart,
-            'repeatingAnchorEnd' => $repeatingAnchorEnd,
-            'viewingRepeatingAnchor' => $viewingRepeatingAnchor,
+            'currentRepeatingBlockStart' => $currentRepeatingBlockStart,
+            'currentRepeatingBlockEnd' => $currentRepeatingBlockEnd,
+            'viewingCurrentRepeatingBlock' => $viewingCurrentRepeatingBlock,
             'repeatingEditLocked' => $repeatingEditLocked,
             'selectedTemplateRepeatingActive' => $selectedTemplateRepeatingActive,
             'periodLabel' => $periodLabel,
@@ -2453,10 +2462,10 @@ new #[Layout('layouts.app')] class extends Component
                             </div>
                             @if ($repeatingEditLocked)
                                 <div class="mt-2 flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                                    <span>Mode baca saja. Pola berulang hanya dapat diedit pada blok acuan {{ \Illuminate\Support\Carbon::parse($repeatingAnchorStart)->translatedFormat('d M') }} – {{ \Illuminate\Support\Carbon::parse($repeatingAnchorEnd)->translatedFormat('d M Y') }}.</span>
-                                    <button type="button" wire:click="goToRepeatingAnchor"
+                                    <span>Mode baca saja. Pola berulang hanya dapat diedit pada blok berjalan {{ \Illuminate\Support\Carbon::parse($currentRepeatingBlockStart)->translatedFormat('d M') }} – {{ \Illuminate\Support\Carbon::parse($currentRepeatingBlockEnd)->translatedFormat('d M Y') }}.</span>
+                                    <button type="button" wire:click="goToCurrentRepeatingBlock"
                                         class="shrink-0 rounded-md bg-amber-700 px-3 py-1.5 font-semibold text-white hover:bg-amber-800">
-                                        Kembali ke Blok Acuan
+                                        Ke Blok Berjalan
                                     </button>
                                 </div>
                             @endif
@@ -2607,10 +2616,8 @@ new #[Layout('layouts.app')] class extends Component
                                             ];
                                             $cellInRepeatingAnchor = ! $repeatingPatternActive
                                                 || (
-                                                    $repeatingAnchorStart !== null
-                                                    && $repeatingAnchorEnd !== null
-                                                    && $cell['date'] >= $repeatingAnchorStart
-                                                    && $cell['date'] <= $repeatingAnchorEnd
+                                                    $calendarViewMode === 'block'
+                                                    || ! empty($cell['in_month'])
                                                 );
                                             $cellEditable = $calendarEditMode
                                                 && ($calendarViewMode !== 'month' || ! empty($cell['in_month']))

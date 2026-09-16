@@ -1,18 +1,12 @@
-<x-app-layout>
+﻿<x-app-layout>
     <x-slot name="header">
         <h2 class="font-semibold text-xl text-gray-800 leading-tight">Settings</h2>
     </x-slot>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-      /* Bootstrap reboot menambahkan underline pada semua <a> — netralisasi ke style Absensi. */
-      a,
-      a:hover,
-      a:focus,
-      a:active {
-        text-decoration: none !important;
-      }
-
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
+    <style>      a, a:hover, a:focus, a:active { text-decoration: none !important; }
       .db-tools-scope { font-size: 0.925rem; color: #111827; }
       .db-tools-scope .card { border-color: #e5e7eb; box-shadow: none; }
       .db-tools-scope .btn-primary { background-color: #111827; border-color: #111827; }
@@ -20,7 +14,7 @@
       .db-tools-scope .nav-tabs .nav-link.active { color: #f7340d; border-color: #e5e7eb #e5e7eb #fff; font-weight: 600; }
       .db-tools-scope .nav-tabs .nav-link { color: #6b7280; text-decoration: none !important; }
       .db-tools-scope .page-breadcrumb { display: none; }
-.db-stat-card {
+  .db-stat-card {
     border-left: 4px solid;
     border-radius: 6px;
   }
@@ -122,598 +116,255 @@
     margin-bottom: 4px;
   }
 
+  /* â”€â”€ Database Migration Wizard â”€â”€ */
+  .dm-wizard { max-width: 1100px; margin: 0 auto; }
+  .dm-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 24px;
+  }
+  .dm-header-icon {
+    width: 44px; height: 44px; border-radius: 10px;
+    background: linear-gradient(135deg, #0d6efd, #4dabf7);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; flex-shrink: 0;
+  }
+  .dm-header-title { font-size: 1.35rem; font-weight: 700; color: #1a1a2e; margin: 0; }
+  .dm-header-sub { font-size: .85rem; color: #6c757d; margin: 2px 0 0; }
+
+  .dm-stepper {
+    display: flex; align-items: center; justify-content: center;
+    gap: 0; margin-bottom: 28px; padding: 0 12px;
+  }
+  .dm-stepper-item {
+    display: flex; flex-direction: column; align-items: center;
+    flex: 1; position: relative; text-align: center;
+  }
+  .dm-stepper-item:not(:last-child)::after {
+    content: ''; position: absolute; top: 16px; left: calc(50% + 20px);
+    width: calc(100% - 40px); height: 2px; background: #dee2e6; z-index: 0;
+  }
+  .dm-stepper-item.done:not(:last-child)::after { background: #0d6efd; }
+  .dm-stepper-circle {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 2px solid #dee2e6; background: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .8rem; font-weight: 700; color: #adb5bd;
+    position: relative; z-index: 1; transition: all .2s;
+  }
+  .dm-stepper-item.active .dm-stepper-circle {
+    border-color: #0d6efd; background: #0d6efd; color: #fff;
+  }
+  .dm-stepper-item.done .dm-stepper-circle {
+    border-color: #0d6efd; background: #0d6efd; color: #fff;
+  }
+  .dm-stepper-label { font-size: .78rem; font-weight: 600; color: #495057; margin-top: 6px; }
+  .dm-stepper-desc { font-size: .68rem; color: #adb5bd; }
+
+  .dm-section {
+    background: #fff; border: 1px solid #e9ecef; border-radius: 12px;
+    padding: 20px 24px; margin-bottom: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+  .dm-section-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 18px;
+  }
+  .dm-section-num {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: #0d6efd; color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .78rem; font-weight: 700; flex-shrink: 0;
+  }
+  .dm-section-num.purple { background: #6f42c1; }
+  .dm-section-num.green { background: #198754; }
+  .dm-section-title { font-size: .95rem; font-weight: 700; color: #1a1a2e; margin: 0; }
+  .dm-section-sub { font-size: .78rem; color: #6c757d; margin: 0; }
+
+  .dm-server-card {
+    border: 1px solid #e9ecef; border-radius: 10px; padding: 18px;
+    height: 100%; background: #fafbfc;
+  }
+  .dm-server-card-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .dm-server-icon {
+    width: 36px; height: 36px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .dm-server-icon.source { background: rgba(13,110,253,.12); color: #0d6efd; }
+  .dm-server-icon.dest { background: rgba(111,66,193,.12); color: #6f42c1; }
+  .dm-server-name { font-size: .88rem; font-weight: 700; color: #1a1a2e; }
+  .dm-server-desc { font-size: .72rem; color: #6c757d; }
+  .dm-verified-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: .68rem; font-weight: 600; color: #198754;
+    background: rgba(25,135,84,.1); border-radius: 20px; padding: 3px 10px;
+  }
+  .dm-swap-icon {
+    width: 36px; height: 36px; border-radius: 50%; border: 1px solid #dee2e6;
+    background: #fff; display: flex; align-items: center; justify-content: center;
+    color: #6c757d; flex-shrink: 0; align-self: center;
+  }
+  .dm-test-result {
+    font-size: .78rem; margin-top: 8px; display: flex; align-items: center; gap: 6px;
+  }
+  .dm-test-result.success { color: #198754; }
+  .dm-test-result.danger { color: #dc3545; }
+  .dm-test-result.warning { color: #fd7e14; }
+  .dm-test-result.info { color: #0d6efd; }
+
+  .dm-mode-card {
+    border: 2px solid #e9ecef; border-radius: 10px; padding: 14px 16px;
+    cursor: pointer; transition: border-color .15s, background .15s;
+    height: 100%;
+  }
+  .dm-mode-card:hover { border-color: #b6d4fe; }
+  .dm-mode-card.active { border-color: #0d6efd; background: rgba(13,110,253,.04); }
+  .dm-mode-card .dm-mode-title { font-size: .85rem; font-weight: 700; color: #1a1a2e; }
+  .dm-mode-card .dm-mode-desc { font-size: .74rem; color: #6c757d; margin: 0; }
+
+  .dm-table-list {
+    border: 1px solid #e9ecef; border-radius: 8px;
+    max-height: 200px; overflow-y: auto;
+  }
+  .dm-table-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 12px; border-bottom: 1px solid #f1f3f5;
+    font-size: .8rem; cursor: pointer; margin: 0;
+  }
+  .dm-table-item:last-child { border-bottom: none; }
+  .dm-table-item:hover { background: #f8f9fa; }
+  .dm-table-name { flex: 1; font-family: monospace; font-size: .78rem; }
+  .dm-table-rows { font-size: .72rem; color: #6c757d; white-space: nowrap; }
+
+  .dm-progress-bar-wrap {
+    height: 10px; border-radius: 6px; background: #e9ecef; overflow: hidden;
+  }
+  .dm-progress-bar {
+    height: 100%; border-radius: 6px; background: linear-gradient(90deg, #198754, #20c997);
+    transition: width .4s ease; width: 0%;
+  }
+  .dm-progress-pct { font-size: .85rem; font-weight: 700; color: #198754; }
+  .dm-log-panel {
+    border: 1px solid #e9ecef; border-radius: 8px; background: #f8f9fa;
+    max-height: 160px; overflow-y: auto; font-size: .74rem;
+    font-family: monospace; padding: 10px 12px; color: #495057;
+  }
+  .dm-log-line { margin-bottom: 2px; }
+  .dm-done-icon {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: rgba(25,135,84,.12); color: #198754;
+    display: flex; align-items: center; justify-content: center; margin-bottom: 12px;
+  }
+  .dm-advanced-toggle { font-size: .78rem; }
+
+  /* â”€â”€ Backup & Restore â”€â”€ */
+  .br-wrap { max-width: 1100px; margin: 0 auto; }
+  .br-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
+  .br-header-icon {
+    width: 44px; height: 44px; border-radius: 10px;
+    background: linear-gradient(135deg, #0d6efd, #4dabf7);
+    display: flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0;
+  }
+  .br-header-title { font-size: 1.35rem; font-weight: 700; color: #1a1a2e; margin: 0; }
+  .br-header-sub { font-size: .85rem; color: #6c757d; margin: 2px 0 0; }
+  .br-section {
+    background: #fff; border: 1px solid #e9ecef; border-radius: 12px;
+    padding: 18px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.04);
+  }
+  .br-section-title {
+    font-size: .82rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .04em; color: #6c757d; margin-bottom: 12px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .br-stat-card {
+    background: #fff; border: 1px solid #e9ecef; border-radius: 10px;
+    padding: 14px 16px; display: flex; align-items: center; gap: 12px; height: 100%;
+  }
+  .br-stat-icon {
+    width: 40px; height: 40px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .br-stat-icon.blue { background: rgba(13,110,253,.12); color: #0d6efd; }
+  .br-stat-icon.green { background: rgba(25,135,84,.12); color: #198754; }
+  .br-stat-icon.orange { background: rgba(253,126,20,.12); color: #fd7e14; }
+  .br-stat-icon.purple { background: rgba(111,66,193,.12); color: #6f42c1; }
+  .br-stat-label { font-size: .72rem; color: #6c757d; }
+  .br-stat-value { font-size: 1rem; font-weight: 700; color: #1a1a2e; }
+  .br-action-card {
+    border: 1px solid #e9ecef; border-radius: 12px; padding: 20px; background: #fff;
+  }
+  .br-action-card.backup { border-top: 3px solid #0d6efd; }
+  .br-action-card.restore { border-top: 3px solid #198754; }
+  .br-action-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .br-action-icon {
+    width: 40px; height: 40px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .br-action-icon.backup { background: rgba(13,110,253,.12); color: #0d6efd; }
+  .br-action-icon.restore { background: rgba(25,135,84,.12); color: #198754; }
+  .br-action-title { font-size: .95rem; font-weight: 700; color: #1a1a2e; }
+  .br-action-desc { font-size: .76rem; color: #6c757d; }
+  .br-field-label { font-size: .74rem; font-weight: 600; color: #495057; margin-bottom: 6px; }
+  .br-option {
+    border: 1px solid #dee2e6; border-radius: 10px; padding: 10px 12px;
+    background: #fff; cursor: pointer; transition: border-color .15s, background .15s; margin: 0;
+  }
+  .br-option-title { font-size: .84rem; font-weight: 600; color: #1a1a2e; }
+  .br-option-desc { font-size: .72rem; color: #6c757d; }
+  .backup-option:has(input:checked) { border-color: #0d6efd; background: rgba(13,110,253,.04); }
+  .restore-option:has(input:checked) { border-color: #198754; background: rgba(25,135,84,.04); }
+  .br-dropzone {
+    border: 2px dashed #b8dfc8; border-radius: 10px; padding: 24px 16px;
+    text-align: center; cursor: pointer; background: rgba(25,135,84,.03);
+    transition: border-color .15s, background .15s;
+  }
+  .br-dropzone:hover, .br-dropzone.dragover { border-color: #198754; background: rgba(25,135,84,.06); }
+  .br-dropzone-title { font-size: .82rem; font-weight: 600; color: #198754; margin-top: 8px; }
+  .br-dropzone-desc { font-size: .72rem; color: #6c757d; margin-top: 4px; }
+  .br-dropzone-file { font-size: .78rem; color: #495057; margin-top: 8px; font-weight: 600; }
+  .br-schedule-badge { font-size: .68rem; font-weight: 600; }
+  .br-schedule-preview {
+    background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px;
+    padding: 10px 12px; font-size: .74rem; font-family: monospace; word-break: break-all;
+  }
     </style>
 
-    <div class="h-[calc(100vh-8rem)] flex flex-col">
-        <div class="flex-1 flex flex-col min-h-0 px-4 sm:px-6 lg:px-8 py-4 space-y-3">
-            <div class="bg-white shadow-sm rounded-lg overflow-hidden flex-1 flex flex-col min-h-0">
-                @include('settings._settings-tabs')
-                <div class="db-tools-scope flex-1 min-h-0 overflow-y-auto p-4 sm:p-6">
-<nav class="page-breadcrumb">
-    <ol class="breadcrumb">
-      <li class="breadcrumb-item"><a href="{{ route('tools.database') }}">Tools</a></li>
-      <li class="breadcrumb-item active">Database</li>
-    </ol>
-  </nav>
+    <div class="py-6">
+        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
+            @include('settings._settings-tabs')
 
-  <ul class="nav nav-tabs mb-3" id="databaseToolTabs" role="tablist">
-    <li class="nav-item" role="presentation">
-      <button class="nav-link active" id="backup-restore-tab" data-bs-toggle="tab" data-bs-target="#backup-restore-pane" type="button" role="tab" aria-controls="backup-restore-pane" aria-selected="true">
-        Backup / Restore
-      </button>
-    </li>
-    <li class="nav-item" role="presentation">
-      <button class="nav-link" id="migration-server-tab" data-bs-toggle="tab" data-bs-target="#migration-server-pane" type="button" role="tab" aria-controls="migration-server-pane" aria-selected="false">
-        Migration Server
-      </button>
-    </li>
-  </ul>
-
-  <div class="tab-content" id="databaseToolTabContent">
-    <div class="tab-pane fade show active" id="backup-restore-pane" role="tabpanel" aria-labelledby="backup-restore-tab" tabindex="0">
-      <div class="row g-3 mb-3">
-        <div class="col-6 col-lg-3">
-          <div class="card db-stat-card blue h-100">
-            <div class="card-body py-3">
-              <p class="text-muted mb-1" style="font-size:.78rem">Driver</p>
-              <h5 class="mb-0">{{ $connection['driver'] }}</h5>
-            </div>
-          </div>
-        </div>
-        <div class="col-6 col-lg-3">
-          <div class="card db-stat-card green h-100">
-            <div class="card-body py-3">
-              <p class="text-muted mb-1" style="font-size:.78rem">Jumlah Tabel</p>
-              <h5 class="mb-0">{{ $tableData->count() }}</h5>
-            </div>
-          </div>
-        </div>
-        <div class="col-6 col-lg-3">
-          <div class="card db-stat-card orange h-100">
-            <div class="card-body py-3">
-              <p class="text-muted mb-1" style="font-size:.78rem">Total Ukuran DB</p>
-              <h5 class="mb-0">{{ $totalSize->total ?? '-' }}</h5>
-            </div>
-          </div>
-        </div>
-        <div class="col-6 col-lg-3">
-          <div class="card db-stat-card purple h-100">
-            <div class="card-body py-3">
-              <p class="text-muted mb-1" style="font-size:.78rem">Total Migrasi</p>
-              <h5 class="mb-0">{{ count($migrations) }}</h5>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="row g-3 mb-3">
-        <div class="col-12">
-          <div class="card">
-            <div class="card-body">
-              <p class="section-title"><i data-feather="server" style="width:13px;height:13px"></i> Informasi Koneksi</p>
-              <div class="row g-3">
-                <div class="col-6 col-md-3">
-                  <div class="connection-item">
-                    <span class="label">Driver</span>
-                    <span class="value">{{ $connection['driver'] }}</span>
-                  </div>
-                </div>
-                <div class="col-6 col-md-3">
-                  <div class="connection-item">
-                    <span class="label">Region</span>
-                    <span class="value">{{ $connection['region'] }}</span>
-                  </div>
-                </div>
-                <div class="col-12 col-md-6">
-                  <div class="connection-item">
-                    <span class="label">Host (Pooler)</span>
-                    <span class="value" style="font-size:.82rem">{{ $connection['host'] }}</span>
-                  </div>
-                </div>
-                <div class="col-12">
-                  <div class="connection-item">
-                    <span class="label">Supabase URL</span>
-                    <span class="value" style="font-size:.82rem">
-                      <a href="{{ $connection['url'] }}" target="_blank">{{ $connection['url'] }}</a>
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="row g-3 mb-3">
-        <div class="col-12 col-xl-7">
-          <div class="card h-100">
-            <div class="card-body">
-              <div class="d-flex justify-content-between align-items-center mb-2 gap-2 flex-wrap">
-                <p class="section-title mb-0"><i data-feather="layers" style="width:13px;height:13px"></i> Tabel & Jumlah Record</p>
-                <button id="btn-clear-tables" type="button" class="btn btn-outline-danger btn-sm d-flex align-items-center gap-1" disabled>
-                  <i data-feather="trash-2" style="width:13px;height:13px;"></i>
-                  Clear Table (<span id="clear-tables-count">0</span>)
+            <div class="db-tools-scope mt-4">
+  <div class="row">
+    <div class="col-md-12 grid-margin stretch-card">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex align-items-center justify-content-between border-bottom gap-2">
+            <ul class="nav nav-tabs nav-tabs-line border-bottom-0 flex-grow-1" id="databaseToolTabs" role="tablist">
+              <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="backup-restore-tab" data-bs-toggle="tab" data-bs-target="#backup-restore-pane" type="button" role="tab" aria-controls="backup-restore-pane" aria-selected="true">
+                  <i data-feather="hard-drive" class="icon-sm me-2"></i>
+                  Backup / Restore
                 </button>
-              </div>
-              <div style="max-height:420px; overflow-y:auto;">
-                <table class="table table-sm table-hover mb-0">
-                  <thead class="table-light sticky-top">
-                    <tr>
-                      <th style="width:34px;" class="text-center">
-                        <input type="checkbox" class="form-check-input" id="clear-tables-select-all" title="Pilih semua">
-                      </th>
-                      <th>#</th>
-                      <th>Nama Tabel</th>
-                      <th class="text-end">Record</th>
-                      <th class="text-end">Ukuran</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @foreach($tableData as $i => $t)
-                    <tr>
-                      <td class="text-center">
-                        <input type="checkbox" class="form-check-input tbl-check" value="{{ $t['name'] }}" data-rows="{{ $t['row_count'] }}">
-                      </td>
-                      <td class="text-muted">{{ $i + 1 }}</td>
-                      <td><code style="font-size:.8rem">{{ $t['name'] }}</code></td>
-                      <td class="text-end">{{ $t['row_count'] }}</td>
-                      <td class="text-end text-muted">{{ $t['size'] }}</td>
-                    </tr>
-                    @endforeach
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="col-12 col-xl-5">
-          <div class="card h-100">
-            <div class="card-body">
-              <p class="section-title"><i data-feather="git-commit" style="width:13px;height:13px"></i> Riwayat Migrasi</p>
-              <div style="max-height:420px; overflow-y:auto;">
-                <table class="table table-sm table-hover mb-0">
-                  <thead class="table-light sticky-top">
-                    <tr>
-                      <th>Nama Migrasi</th>
-                      <th class="text-center">Batch</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @foreach($migrations as $mig)
-                    <tr>
-                      <td style="font-size:.75rem; word-break:break-all;">{{ $mig->migration }}</td>
-                      <td class="text-center">
-                        <span class="badge bg-secondary badge-batch">{{ $mig->batch }}</span>
-                      </td>
-                    </tr>
-                    @endforeach
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="row g-3 mb-3">
-        <div class="col-12">
-          <div class="card">
-            <div class="card-body">
-              <p class="section-title"><i data-feather="database" style="width:13px;height:13px"></i> Backup & Restore</p>
-
-              <div class="row g-3">
-                <div class="col-12 col-lg-6">
-                  <div class="backup-card p-3 d-flex flex-column gap-2 h-100">
-                    <div>
-                      <div class="text-muted mb-2" style="font-size:.8rem;font-weight:600;">Backup Scope</div>
-                      <div class="row g-2 mb-3">
-                        <div class="col-12 col-md-6">
-                          <label class="storage-option d-flex align-items-start gap-3 h-100">
-                            <input class="form-check-input" type="radio" name="backup-scope" value="full" checked>
-                            <div>
-                              <div style="font-size:.95rem;font-weight:600;">Full Backup</div>
-                              <div class="text-muted" style="font-size:.78rem;">SQL data + CSV per tabel</div>
-                            </div>
-                          </label>
-                        </div>
-                        <div class="col-12 col-md-6">
-                          <label class="storage-option d-flex align-items-start gap-3 h-100">
-                            <input class="form-check-input" type="radio" name="backup-scope" value="structure">
-                            <div>
-                              <div style="font-size:.95rem;font-weight:600;">Database Structure</div>
-                              <div class="text-muted" style="font-size:.78rem;">Schema/struktur database saja</div>
-                            </div>
-                          </label>
-                        </div>
-                      </div>
-
-                      <div class="text-muted mb-2" style="font-size:.8rem;font-weight:600;">Storage Type</div>
-                      <div class="row g-2 mb-3">
-                        <div class="col-12 col-md-6">
-                          <label class="storage-option d-flex align-items-start gap-3 h-100">
-                            <input class="form-check-input" type="radio" name="backup-storage-type" value="local" checked>
-                            <div>
-                              <div style="font-size:.95rem;font-weight:600;">Local Storage</div>
-                              <div class="text-muted" style="font-size:.78rem;">Store backup di server lalu diunduh ke browser</div>
-                            </div>
-                          </label>
-                        </div>
-                        <div class="col-12 col-md-6">
-                          <label class="storage-option d-flex align-items-start gap-3 h-100">
-                            <input class="form-check-input" type="radio" name="backup-storage-type" value="cloud">
-                            <div>
-                              <div style="font-size:.95rem;font-weight:600;">Cloud Storage</div>
-                              <div class="text-muted" style="font-size:.78rem;">Upload hasil backup langsung ke Google Drive</div>
-                            </div>
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="d-flex align-items-center gap-2">
-                      <div style="width:36px;height:36px;background:rgba(13,110,253,.1);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                        <i data-feather="download-cloud" style="width:16px;height:16px;color:#0d6efd;"></i>
-                      </div>
-                      <div>
-                        <div style="font-size:.88rem;font-weight:600;">Download Backup</div>
-                        <div style="font-size:.76rem;color:#6c757d;">Diproses di background, link download muncul saat file siap</div>
-                      </div>
-                    </div>
-                    <p style="font-size:.78rem;color:#6c757d;margin-bottom:4px;">
-                      Mengunduh seluruh data sebagai <code>.sql</code> dan <code>.csv</code> per tabel, dikemas dalam satu file <code>backup_YYYYMMDD_HHiiss.tar.gz</code>.
-                    </p>
-                    <button id="btn-backup" type="button" class="btn btn-primary btn-sm d-flex align-items-center justify-content-center gap-1 mt-auto">
-                      <i data-feather="download" style="width:14px;height:14px;"></i>
-                      <span>Download Backup</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="col-12 col-lg-6">
-                  <div class="backup-card p-3 d-flex flex-column gap-2 h-100" style="border-color:#dc3545;">
-                    <div>
-                      <div class="text-muted mb-2" style="font-size:.8rem;font-weight:600;">Restore Mode</div>
-                      <div class="row g-2 mb-3">
-                        <div class="col-12 col-md-6">
-                          <label class="storage-option d-flex align-items-start gap-3 h-100">
-                            <input class="form-check-input" type="radio" name="restore-mode" value="full" checked>
-                            <div>
-                              <div style="font-size:.95rem;font-weight:600;">Full Restore</div>
-                              <div class="text-muted" style="font-size:.78rem;">Seluruh database ditimpa dari backup</div>
-                            </div>
-                          </label>
-                        </div>
-                        <div class="col-12 col-md-6">
-                          <label class="storage-option d-flex align-items-start gap-3 h-100">
-                            <input class="form-check-input" type="radio" name="restore-mode" value="table">
-                            <div>
-                              <div style="font-size:.95rem;font-weight:600;">Per Tabel</div>
-                              <div class="text-muted" style="font-size:.78rem;">Pilih tabel tertentu untuk ditimpa</div>
-                            </div>
-                          </label>
-                        </div>
-                      </div>
-
-                      <div class="text-muted mb-2" style="font-size:.8rem;font-weight:600;">Restore Source</div>
-                      <div class="row g-2 mb-3">
-                        <div class="col-12 col-md-6">
-                          <label class="storage-option d-flex align-items-start gap-3 h-100">
-                            <input class="form-check-input" type="radio" name="restore-source-type" value="local" checked>
-                            <div>
-                              <div style="font-size:.95rem;font-weight:600;">Local Drive</div>
-                              <div class="text-muted" style="font-size:.78rem;">Pilih file backup dari komputer/server lokal</div>
-                            </div>
-                          </label>
-                        </div>
-                        <div class="col-12 col-md-6">
-                          <label class="storage-option d-flex align-items-start gap-3 h-100">
-                            <input class="form-check-input" type="radio" name="restore-source-type" value="cloud">
-                            <div>
-                              <div style="font-size:.95rem;font-weight:600;">Google Drive</div>
-                              <div class="text-muted" style="font-size:.78rem;">Pilih file backup dari folder Google Drive</div>
-                            </div>
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div class="d-flex align-items-center gap-2">
-                      <div style="width:36px;height:36px;background:rgba(220,53,69,.1);border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-                        <i data-feather="upload-cloud" style="width:16px;height:16px;color:#dc3545;"></i>
-                      </div>
-                      <div>
-                        <div style="font-size:.88rem;font-weight:600;">Restore dari Backup</div>
-                        <div style="font-size:.76rem;color:#dc3545;font-weight:500;">Upload dulu, lalu restore diproses di background queue</div>
-                      </div>
-                    </div>
-                    <p style="font-size:.78rem;color:#6c757d;margin-bottom:4px;">
-                      Upload file <code>.tar.gz</code> hasil backup. Setelah file selesai diupload, proses restore berjalan di background dan progress tetap dipantau dari modal ini.
-                    </p>
-                    <div class="mt-auto" id="restore-local-source">
-                      <div class="input-group input-group-sm">
-                        <input type="file" class="form-control form-control-sm" accept=".gz,.tar" id="restore-file-input">
-                        <button type="button" class="btn btn-danger btn-sm" id="btn-restore" disabled>
-                          <i data-feather="upload" style="width:13px;height:13px;"></i> Restore
-                        </button>
-                      </div>
-                    </div>
-                    <div class="mt-auto d-none" id="restore-drive-source">
-                      <div class="d-flex flex-column gap-2">
-                        <button type="button" class="btn btn-outline-danger btn-sm" id="btn-select-drive-file">
-                          <i data-feather="folder" style="width:13px;height:13px;"></i>
-                          Pilih File dari Google Drive
-                        </button>
-                        <div id="selected-drive-file" class="small text-muted d-none"></div>
-                        <button type="button" class="btn btn-danger btn-sm" id="btn-restore-drive" disabled>
-                          <i data-feather="upload" style="width:13px;height:13px;"></i> Restore dari Google Drive
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="alert alert-warning mb-0 mt-3 py-2 px-3" style="font-size:.78rem;">
-                <i data-feather="alert-triangle" style="width:13px;height:13px;"></i>
-                <strong>Penting:</strong> Proses backup/restore bisa memakan waktu beberapa menit. Jangan tutup tab browser saat proses berlangsung.
-                Selalu buat backup terbaru sebelum melakukan restore.
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="tab-pane fade" id="migration-server-pane" role="tabpanel" aria-labelledby="migration-server-tab" tabindex="0">
-      <div class="row g-3 mb-3">
-        <div class="col-12">
-          <div class="card">
-            <div class="card-body">
-              <p class="section-title"><i data-feather="shuffle" style="width:13px;height:13px"></i> Server Migration Wizard</p>
-              <p class="text-muted mb-3" style="font-size:.88rem;">Migrasi dari server lama ke server baru, mencakup database, file upload, storage, dan konfigurasi aplikasi.</p>
-
-              <div class="row g-2 mb-2">
-                <div class="col-12 col-md-6">
-                  <div class="migration-option-card">
-                    <div class="d-flex align-items-center gap-2 mb-1">
-                      <i data-feather="database" style="width:14px;height:14px;color:#0d6efd"></i>
-                      <strong style="font-size:.88rem;">Opsi 1 - Database Only</strong>
-                    </div>
-                    <p class="text-muted mb-0" style="font-size:.8rem;">Migrasi struktur dan data database menggunakan koneksi source dan destination.</p>
-                  </div>
-                </div>
-                <div class="col-12 col-md-6">
-                  <div class="migration-option-card">
-                    <div class="d-flex align-items-center gap-2 mb-1">
-                      <i data-feather="package" style="width:14px;height:14px;color:#198754"></i>
-                      <strong style="font-size:.88rem;">Opsi 2 - Full Migration</strong>
-                    </div>
-                    <p class="text-muted mb-0" style="font-size:.8rem;">Database + file upload + storage + konfigurasi aplikasi (arsitektur package).</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="row g-3 mb-3">
-        <div class="col-12 col-xl-6">
-          <div class="migration-step h-100">
-            <div class="step-kicker"><span class="step-number">1</span> Source Server</div>
-            <div class="row g-2">
-              <div class="col-12 col-md-4">
-                <label class="migration-field-label" for="migration-source-driver">Driver</label>
-                <select id="migration-source-driver" class="form-select form-select-sm">
-                  <option value="mysql" selected>MySQL</option>
-                  <option value="pgsql">PostgreSQL</option>
-                </select>
-                <div class="form-text" style="font-size:.74rem;">Contoh: PostgreSQL untuk Supabase, MySQL untuk server lokal/VPS.</div>
-              </div>
-              <div class="col-12 col-md-4">
-                <label class="migration-field-label" for="migration-source-host">Host</label>
-                <input id="migration-source-host" class="form-control form-control-sm" placeholder="Host source">
-                <div class="form-text" style="font-size:.74rem;">Contoh: 127.0.0.1, localhost, db.example.com.</div>
-              </div>
-              <div class="col-12 col-md-4">
-                <label class="migration-field-label" for="migration-source-port">Port</label>
-                <input id="migration-source-port" class="form-control form-control-sm" placeholder="Port (opsional)">
-                <div class="form-text" style="font-size:.74rem;">Contoh: 3306 (MySQL), 5432 (PostgreSQL).</div>
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="migration-field-label" for="migration-source-database">Database</label>
-                <input id="migration-source-database" class="form-control form-control-sm" placeholder="Database source">
-                <div class="form-text" style="font-size:.74rem;">Contoh: erp_printing.</div>
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="migration-field-label" for="migration-source-username">Username</label>
-                <input id="migration-source-username" class="form-control form-control-sm" placeholder="Username source">
-                <div class="form-text" style="font-size:.74rem;">Contoh: root, postgres, erp_user.</div>
-              </div>
-              <div class="col-12">
-                <label class="migration-field-label" for="migration-source-password">Password</label>
-                <input id="migration-source-password" type="password" class="form-control form-control-sm" placeholder="Password source">
-                <div class="form-text" style="font-size:.74rem;">Isi password user database source.</div>
-              </div>
-            </div>
-            <div class="d-flex align-items-center justify-content-between mt-3">
-              <small class="text-muted">Tes koneksi server lama</small>
-              <div class="d-flex gap-2">
-                <button id="btn-save-source-config" type="button" class="btn btn-outline-secondary btn-sm">Save</button>
-                <button id="btn-load-source-config" type="button" class="btn btn-outline-secondary btn-sm">Load</button>
-                <button id="btn-test-source" type="button" class="btn btn-outline-primary btn-sm">Test Source</button>
-              </div>
-            </div>
-            <div id="migration-source-test-result" class="alert py-2 px-3 mb-0 mt-2 d-none" style="font-size:.8rem;"></div>
-            <div id="analysis-source-panel" class="border rounded p-2 mt-2 bg-light d-none">
-              <div class="fw-semibold mb-2" style="font-size:.82rem;color:#0d6efd;">Source Analysis</div>
-              <div class="migration-stats-grid">
-                <div class="migration-stat"><span class="label">Total Tabel</span><span class="value" id="analysis-source-tables">-</span></div>
-                <div class="migration-stat"><span class="label">Total Record</span><span class="value" id="analysis-source-records">-</span></div>
-                <div class="migration-stat"><span class="label">Ukuran DB</span><span class="value" id="analysis-source-size">-</span></div>
-                <div class="migration-stat"><span class="label">Status</span><span class="value" id="analysis-source-status">Belum dites</span></div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="col-12 col-xl-6">
-          <div class="migration-step h-100">
-            <div class="step-kicker"><span class="step-number">2</span> Destination Server</div>
-            <div class="row g-2">
-              <div class="col-12 col-md-4">
-                <label class="migration-field-label" for="migration-destination-driver">Driver</label>
-                <select id="migration-destination-driver" class="form-select form-select-sm">
-                  <option value="mysql" selected>MySQL</option>
-                  <option value="pgsql">PostgreSQL</option>
-                </select>
-                <div class="form-text" style="font-size:.74rem;">Contoh: pilih sesuai database target.</div>
-              </div>
-              <div class="col-12 col-md-4">
-                <label class="migration-field-label" for="migration-destination-host">Host</label>
-                <input id="migration-destination-host" class="form-control form-control-sm" placeholder="Host destination">
-                <div class="form-text" style="font-size:.74rem;">Contoh: 10.10.10.5, mysql.internal, db-new.example.com.</div>
-              </div>
-              <div class="col-12 col-md-4">
-                <label class="migration-field-label" for="migration-destination-port">Port</label>
-                <input id="migration-destination-port" class="form-control form-control-sm" placeholder="Port (opsional)">
-                <div class="form-text" style="font-size:.74rem;">Contoh: 3306 (MySQL), 5432 (PostgreSQL).</div>
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="migration-field-label" for="migration-destination-database">Database</label>
-                <input id="migration-destination-database" class="form-control form-control-sm" placeholder="Database destination">
-                <div class="form-text" style="font-size:.74rem;">Contoh: erp_printing_new.</div>
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="migration-field-label" for="migration-destination-username">Username</label>
-                <input id="migration-destination-username" class="form-control form-control-sm" placeholder="Username destination">
-                <div class="form-text" style="font-size:.74rem;">Contoh: migrator_user.</div>
-              </div>
-              <div class="col-12 col-md-6">
-                <label class="migration-field-label" for="migration-destination-password">Password</label>
-                <input id="migration-destination-password" type="password" class="form-control form-control-sm" placeholder="Password destination">
-                <div class="form-text" style="font-size:.74rem;">Isi password user database destination.</div>
-              </div>
-            </div>
-            <div class="d-flex align-items-center justify-content-between mt-3">
-              <small class="text-muted">Tes koneksi server baru</small>
-              <div class="d-flex gap-2">
-                <button id="btn-save-destination-config" type="button" class="btn btn-outline-secondary btn-sm">Save</button>
-                <button id="btn-load-destination-config" type="button" class="btn btn-outline-secondary btn-sm">Load</button>
-                <button id="btn-test-destination" type="button" class="btn btn-outline-primary btn-sm">Test Destination</button>
-              </div>
-            </div>
-            <div id="migration-destination-test-result" class="alert py-2 px-3 mb-0 mt-2 d-none" style="font-size:.8rem;"></div>
-            <div id="analysis-destination-panel" class="border rounded p-2 mt-2 bg-light d-none">
-              <div class="fw-semibold mb-2" style="font-size:.82rem;color:#198754;">Destination Analysis</div>
-              <div class="migration-stats-grid">
-                <div class="migration-stat"><span class="label">Total Tabel</span><span class="value" id="analysis-destination-tables">-</span></div>
-                <div class="migration-stat"><span class="label">Total Record</span><span class="value" id="analysis-destination-records">-</span></div>
-                <div class="migration-stat"><span class="label">Ukuran DB</span><span class="value" id="analysis-destination-size">-</span></div>
-                <div class="migration-stat"><span class="label">Status</span><span class="value" id="analysis-destination-status">Belum dites</span></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="row g-3 mb-3">
-        <div class="col-12">
-          <div class="migration-step h-100">
-            <div class="step-kicker"><span class="step-number">3</span> Migration Execution</div>
-            <div class="mb-2" style="font-size:.82rem;">
-              Strategi untuk data besar: gunakan batch chunkById, nonaktifkan foreign key check saat import, dan set ulang auto increment setelah selesai.
-            </div>
-            <div class="row g-2 mb-3">
-              <div class="col-12 col-md-6">
-                <label class="migration-field-label" for="migration-mode">Mode Migration</label>
-                <select id="migration-mode" class="form-select form-select-sm">
-                  <option value="full" selected>Full Migration (Structure + data)</option>
-                  <option value="structure">DB Structure Only</option>
-                </select>
-              </div>
-              <div class="col-12 col-md-6 d-flex align-items-end">
-                <div class="small text-muted" style="font-size:.76rem;">
-                  Pilih mode sebelum proses dijalankan. Full Migration akan membawa struktur dan isi data, sedangkan Structure Only hanya menyalin skema.
-                </div>
-              </div>
-            </div>
-            <div class="table-responsive">
-              <table class="table table-sm mb-2 align-middle">
-                <thead class="table-light">
-                  <tr>
-                    <th>Tabel</th>
-                    <th style="width:100px;">Progress</th>
-                    <th style="width:120px;">Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr><td>customers</td><td>80%</td><td><span class="badge bg-warning">Running</span></td></tr>
-                  <tr><td>orders</td><td>30%</td><td><span class="badge bg-warning">Running</span></td></tr>
-                  <tr><td>invoices</td><td>100%</td><td><span class="badge bg-success">Done</span></td></tr>
-                </tbody>
-              </table>
-            </div>
-            <div class="d-flex gap-2">
-              <button type="button" class="btn btn-primary btn-sm" id="btn-start-migration">Start Migration</button>
-              <button type="button" class="btn btn-success btn-sm" id="btn-switch-server">Switch ke Destination</button>
-              <button type="button" class="btn btn-outline-danger btn-sm" id="btn-rollback-server">Rollback Switch</button>
-              <button type="button" class="btn btn-outline-secondary btn-sm">Pause</button>
-            </div>
-          <div id="migration-execution-status" class="alert alert-info py-2 px-3 mt-3 mb-0 d-none" style="font-size:.8rem;"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="row g-3 mb-3">
-        <div class="col-12 col-xl-6">
-          <div class="migration-step h-100">
-            <div class="step-kicker"><span class="step-number">5</span> Verification</div>
-            <ul class="mb-2" style="font-size:.82rem; padding-left: 18px;">
-              <li>Bandingkan COUNT(*) source vs destination per tabel</li>
-              <li>Validasi tabel kritikal: customer, order, invoice</li>
-              <li>Tandai status OK atau mismatch</li>
+              </li>
+              <li class="nav-item" role="presentation">
+                <button class="nav-link" id="migration-server-tab" data-bs-toggle="tab" data-bs-target="#migration-server-pane" type="button" role="tab" aria-controls="migration-server-pane" aria-selected="false">
+                  <i data-feather="repeat" class="icon-sm me-2"></i>
+                  Migration Server
+                </button>
+              </li>
             </ul>
-            <div class="alert alert-success py-2 px-3 mb-0" style="font-size:.8rem;">
-              Contoh hasil: customer 12.500 vs 12.500 - OK
-            </div>
           </div>
-        </div>
-        <div class="col-12 col-xl-6">
-          <div class="migration-step h-100">
-            <div class="step-kicker"><span class="step-number">!</span> Cakupan Migrasi Tabel</div>
-            <div class="alert alert-success py-2 px-3 mb-0" style="font-size:.8rem;">
-              Semua tabel dipindahkan tanpa pengecualian, termasuk tabel migrations.
-            </div>
-          </div>
-        </div>
-      </div>
 
-      <div class="row g-3 mb-3">
-        <div class="col-12">
-          <div class="card border-success">
-            <div class="card-body">
-              <p class="section-title text-success"><i data-feather="archive" style="width:13px;height:13px"></i> Rekomendasi Arsitektur: Export Package - Import Package</p>
-              <p class="text-muted mb-2" style="font-size:.84rem;">Lebih stabil untuk shared hosting, VPS, maupun cloud, dan aman untuk database serta file berukuran besar.</p>
-              <div class="row g-2" style="font-size:.8rem;">
-                <div class="col-12 col-md-8">
-                  <div class="border rounded p-2 bg-light">
-                    migration.zip
-                    <br>- database.sql
-                    <br>- uploads.zip
-                    <br>- config.json
-                    <br>- manifest.json
-                  </div>
-                </div>
-                <div class="col-12 col-md-4">
-                  <div class="border rounded p-2 h-100">
-                    <strong>Keuntungan</strong>
-                    <br>- Bisa offline
-                    <br>- Tidak perlu koneksi antar server
-                    <br>- Bisa jadi backup jangka panjang
-                  </div>
-                </div>
-              </div>
+          <div class="tab-content mt-4" id="databaseToolTabContent">
+            <div class="tab-pane fade show active" id="backup-restore-pane" role="tabpanel" aria-labelledby="backup-restore-tab" tabindex="0">
+              @include('tools.partials.database-backup-restore')
+            </div>
+
+            <div class="tab-pane fade" id="migration-server-pane" role="tabpanel" aria-labelledby="migration-server-tab" tabindex="0">
+              @include('tools.partials.database-migration')
             </div>
           </div>
         </div>
@@ -759,16 +410,16 @@
 
   <div class="modal fade" id="modal-confirm-restore" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-dialog-centered" id="rc-dialog" style="max-width:480px;">
-      <div class="modal-content border border-danger">
+      <div class="modal-content border border-success">
         <div class="modal-header border-0 pb-1">
-          <h6 class="modal-title fw-bold text-danger d-flex align-items-center gap-2">
+          <h6 class="modal-title fw-bold text-success d-flex align-items-center gap-2">
             <i data-feather="alert-triangle" style="width:16px;height:16px;"></i>
             <span id="rc-title">Konfirmasi Restore Database</span>
           </h6>
           <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
         </div>
         <div class="modal-body py-2">
-          <div class="alert alert-danger py-2 px-3 mb-3" style="font-size:.82rem;">
+          <div class="alert alert-warning py-2 px-3 mb-3" style="font-size:.82rem;">
             <strong>PERINGATAN!</strong> <span id="rc-warning">Tindakan ini akan <strong>menghapus semua data yang ada</strong>
             dan menggantinya dengan data dari file backup.</span> Tindakan ini <strong>tidak bisa dibatalkan</strong>.
           </div>
@@ -816,7 +467,7 @@
         </div>
         <div class="modal-footer border-0 pt-1">
           <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Batal</button>
-          <button type="button" class="btn btn-danger btn-sm" id="btn-confirm-restore">
+          <button type="button" class="btn btn-success btn-sm" id="btn-confirm-restore">
             <i data-feather="upload-cloud" style="width:13px;height:13px;"></i>
             Ya, Lakukan Restore
           </button>
@@ -927,21 +578,19 @@
         </div>
       </div>
     </div>
-  </div>
-                </div>
-            </div>
+  </div>            </div>
         </div>
     </div>
 
-    @push('scripts')
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/feather-icons/dist/feather.min.js"></script>
-<script>
-if (window.feather) { feather.replace(); }
+    @push('scripts')<script>
+feather.replace();
 
 const CSRF = document.querySelector('meta[name="csrf-token"]')?.content ?? '';
 const URL_BACKUP_START   = "{{ route('tools.database.backup.start') }}";
 const URL_BACKUP_RUN     = "{{ route('tools.database.backup.run') }}";
+const URL_BACKUP_SCHEDULE_APPLY = "{{ route('tools.database.backup.schedule.apply') }}";
+const URL_BACKUP_SCHEDULE_DISABLE = "{{ route('tools.database.backup.schedule.disable') }}";
+const SCHEDULE_BOOT = @json($backupSchedule ?? []);
 const URL_BACKUP_DL      = "{{ url('tools/database/backup/download') }}";
 const URL_PROGRESS       = "{{ url('tools/database/progress') }}";
 const URL_RESTORE_PREPARE = "{{ route('tools.database.restore.prepare') }}";
@@ -977,33 +626,53 @@ let progressDotsTimer = null;
 let progressDots = 0;
 let lastMigrationMeta = {};
 
-// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ Init modals ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
-document.addEventListener('DOMContentLoaded', () => {
-  bsProgress = new bootstrap.Modal(document.getElementById('modal-progress'), { backdrop: 'static', keyboard: false });
-  bsConfirm  = new bootstrap.Modal(document.getElementById('modal-confirm-restore'));
-  bsDrivePicker = new bootstrap.Modal(document.getElementById('modal-select-drive-file'));
-  bsMigrationConfirm = new bootstrap.Modal(document.getElementById('modal-confirm-migration'));
-  bsClearTables = new bootstrap.Modal(document.getElementById('modal-clear-tables'));
+function createBootstrapModal(id, options = {}) {
+  const el = document.getElementById(id);
+  if (!el || typeof bootstrap === 'undefined') {
+    return null;
+  }
+  return new bootstrap.Modal(el, options);
+}
 
-  initClearTables();
+function initDatabaseTools() {
+  // Backup/restor — pasang dulu agar tetap jalan walau init lain gagal.
+  document.getElementById('btn-backup')?.addEventListener('click', startBackup);
+  document.getElementById('btn-restore')?.addEventListener('click', prepareRestoreLocal);
+  document.getElementById('btn-confirm-restore')?.addEventListener('click', () => runPreparedRestore());
 
-  syncRestoreSourceUI();
+  try {
+    bsProgress = createBootstrapModal('modal-progress', { backdrop: 'static', keyboard: false });
+    bsConfirm = createBootstrapModal('modal-confirm-restore');
+    bsDrivePicker = createBootstrapModal('modal-select-drive-file');
+    bsMigrationConfirm = createBootstrapModal('modal-confirm-migration');
+    bsClearTables = createBootstrapModal('modal-clear-tables');
 
-  document.querySelectorAll('input[name="restore-source-type"]').forEach(input => {
-    input.addEventListener('change', syncRestoreSourceUI);
-  });
+    initClearTables();
+    initMigrationWizard();
+    initBackupRestoreUI();
+    initScheduledBackupUI();
 
-  // Restore file input: enable button when file chosen
-  document.getElementById('restore-file-input').addEventListener('change', function() {
-    document.getElementById('btn-restore').disabled = !this.files.length;
-  });
+    syncRestoreSourceUI();
 
-  document.getElementById('btn-select-drive-file').addEventListener('click', () => {
-    bsDrivePicker.show();
-    loadGoogleDriveBackupFiles();
-  });
+    document.querySelectorAll('input[name="restore-source-type"]').forEach(input => {
+      input.addEventListener('change', syncRestoreSourceUI);
+    });
 
-  document.getElementById('btn-refresh-drive-picker').addEventListener('click', loadGoogleDriveBackupFiles);
+    const restoreFileInput = document.getElementById('restore-file-input');
+    if (restoreFileInput) {
+      restoreFileInput.addEventListener('change', function() {
+        const restoreBtn = document.getElementById('btn-restore');
+        if (restoreBtn) restoreBtn.disabled = !this.files.length;
+        updateRestoreSelectedFileLabel(this.files[0]);
+      });
+    }
+
+    document.getElementById('btn-select-drive-file')?.addEventListener('click', () => {
+      bsDrivePicker?.show();
+      loadGoogleDriveBackupFiles();
+    });
+
+    document.getElementById('btn-refresh-drive-picker')?.addEventListener('click', loadGoogleDriveBackupFiles);
 
   const testSourceButton = document.getElementById('btn-test-source');
   if (testSourceButton) {
@@ -1017,7 +686,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const loadSourceConfigButton = document.getElementById('btn-load-source-config');
   if (loadSourceConfigButton) {
-    loadSourceConfigButton.addEventListener('click', loadSourceConfig);
+    loadSourceConfigButton.addEventListener('click', () => loadSourceConfig(loadSourceConfigButton));
+  }
+
+  const fetchSourceButton = document.getElementById('btn-fetch-source');
+  if (fetchSourceButton) {
+    fetchSourceButton.addEventListener('click', () => loadSourceConfig(fetchSourceButton));
   }
 
   const testDestinationButton = document.getElementById('btn-test-destination');
@@ -1032,7 +706,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const loadDestinationConfigButton = document.getElementById('btn-load-destination-config');
   if (loadDestinationConfigButton) {
-    loadDestinationConfigButton.addEventListener('click', loadDestinationConfig);
+    loadDestinationConfigButton.addEventListener('click', () => loadDestinationConfig(loadDestinationConfigButton));
+  }
+
+  const fetchDestinationButton = document.getElementById('btn-fetch-destination');
+  if (fetchDestinationButton) {
+    fetchDestinationButton.addEventListener('click', () => loadDestinationConfig(fetchDestinationButton));
   }
 
   const startMigrationButton = document.getElementById('btn-start-migration');
@@ -1055,22 +734,398 @@ document.addEventListener('DOMContentLoaded', () => {
     confirmMigrationButton.addEventListener('click', runMigrationExecution);
   }
 
-  // Restore dari Google Drive ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ siapkan & periksa log dulu
-  document.getElementById('btn-restore-drive').addEventListener('click', prepareRestoreCloud);
+    document.getElementById('btn-restore-drive')?.addEventListener('click', prepareRestoreCloud);
+  } catch (err) {
+    console.error('[database-tools] init error:', err);
+  }
+}
 
-  // Backup button
-  document.getElementById('btn-backup').addEventListener('click', startBackup);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initDatabaseTools);
+} else {
+  initDatabaseTools();
+}
 
-  // Restore lokal ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ upload, periksa log, lalu tampilkan konfirmasi
-  document.getElementById('btn-restore').addEventListener('click', prepareRestoreLocal);
+let migrationInlineTimer = null;
+let migrationIsRunning = false;
 
-  // Confirm restore button ÃƒÂ¢Ã¢â‚¬Â Ã¢â‚¬â„¢ jalankan restore yang sudah disiapkan
-  document.getElementById('btn-confirm-restore').addEventListener('click', function() {
-    runPreparedRestore();
+function initMigrationWizard() {
+  document.querySelectorAll('.dm-mode-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.dm-mode-card').forEach(c => c.classList.remove('active'));
+      card.classList.add('active');
+      const mode = card.dataset.mode || 'full';
+      const select = document.getElementById('migration-mode');
+      if (select) select.value = mode;
+    });
   });
-});
 
-// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ CLEAR TABLES ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+  document.querySelectorAll('.dm-toggle-pw').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById(btn.dataset.target);
+      if (!input) return;
+      const isPassword = input.type === 'password';
+      input.type = isPassword ? 'text' : 'password';
+      const icon = btn.querySelector('[data-feather]');
+      if (icon) icon.setAttribute('data-feather', isPassword ? 'eye-off' : 'eye');
+      feather.replace();
+    });
+  });
+
+  const selectAll = document.getElementById('migration-select-all-tables');
+  if (selectAll) {
+    selectAll.addEventListener('change', function () {
+      document.querySelectorAll('.migration-tbl-check').forEach(cb => { cb.checked = this.checked; });
+    });
+  }
+
+  document.getElementById('migration-table-list')?.addEventListener('change', (e) => {
+    if (!e.target.classList.contains('migration-tbl-check')) return;
+    const checks = document.querySelectorAll('.migration-tbl-check');
+    const checked = document.querySelectorAll('.migration-tbl-check:checked');
+    if (selectAll) {
+      selectAll.checked = checks.length > 0 && checked.length === checks.length;
+      selectAll.indeterminate = checked.length > 0 && checked.length < checks.length;
+    }
+  });
+}
+
+function setDmStepperStep(step) {
+  document.querySelectorAll('.dm-stepper-item').forEach(item => {
+    const s = Number(item.dataset.step);
+    item.classList.remove('active', 'done');
+    if (s < step) item.classList.add('done');
+    if (s === step) item.classList.add('active');
+  });
+}
+
+function showMigrationStep(step) {
+  setDmStepperStep(step);
+  const step3 = document.getElementById('dm-step-3');
+  const step4 = document.getElementById('dm-step-4');
+  if (step3) step3.classList.toggle('d-none', step < 3);
+  if (step4) step4.classList.toggle('d-none', step < 4);
+}
+
+function setVerifiedBadge(type, visible) {
+  const el = document.getElementById(type === 'destination' ? 'migration-destination-verified' : 'migration-source-verified');
+  if (el) el.classList.toggle('d-none', !visible);
+}
+
+function renderMigrationTableList(tables) {
+  const list = document.getElementById('migration-table-list');
+  const selectAll = document.getElementById('migration-select-all-tables');
+  if (!list || !Array.isArray(tables)) return;
+
+  list.innerHTML = tables.map(tbl => {
+    const name = escapeHtml(tbl.name || '');
+    const rows = formatNumber(tbl.row_count ?? 0);
+    return '<label class="dm-table-item">' +
+      '<input type="checkbox" class="form-check-input migration-tbl-check mt-0" value="' + name + '" checked>' +
+      '<span class="dm-table-name">' + name + '</span>' +
+      '<span class="dm-table-rows">' + rows + ' rows</span>' +
+      '</label>';
+  }).join('');
+
+  if (selectAll) {
+    selectAll.checked = tables.length > 0;
+    selectAll.indeterminate = false;
+  }
+}
+
+function updateInlineMigrationProgress(pct, msg) {
+  const p = Math.max(0, Math.min(100, pct));
+  const bar = document.getElementById('migration-inline-bar');
+  const pctEl = document.getElementById('migration-inline-pct');
+  const statusEl = document.getElementById('migration-inline-status');
+  if (bar) bar.style.width = p + '%';
+  if (pctEl) pctEl.textContent = p + '%';
+  if (statusEl && msg) statusEl.textContent = msg;
+}
+
+function appendMigrationLog(line) {
+  const logs = document.getElementById('migration-inline-logs');
+  if (!logs || !line) return;
+  const firstMuted = logs.querySelector('.text-muted');
+  if (firstMuted && firstMuted.textContent.includes('Menunggu')) firstMuted.remove();
+  const div = document.createElement('div');
+  div.className = 'dm-log-line';
+  div.textContent = line;
+  logs.appendChild(div);
+  logs.scrollTop = logs.scrollHeight;
+}
+
+function startMigrationInlineTimer() {
+  if (migrationInlineTimer) clearInterval(migrationInlineTimer);
+  const startAt = Date.now();
+  migrationInlineTimer = setInterval(() => {
+    const el = document.getElementById('migration-inline-elapsed');
+    if (el) el.textContent = formatDurationMs(Date.now() - startAt);
+  }, 1000);
+}
+
+function stopMigrationInlineTimer() {
+  if (migrationInlineTimer) clearInterval(migrationInlineTimer);
+  migrationInlineTimer = null;
+}
+
+function initBackupRestoreUI() {
+  const dropzone = document.getElementById('restore-dropzone');
+  const fileInput = document.getElementById('restore-file-input');
+  const tableSearch = document.getElementById('br-table-search');
+
+  if (dropzone && fileInput) {
+    dropzone.addEventListener('click', () => fileInput.click());
+
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('dragover');
+    });
+
+    dropzone.addEventListener('dragleave', () => {
+      dropzone.classList.remove('dragover');
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('dragover');
+      const file = e.dataTransfer?.files?.[0];
+      if (!file) return;
+      fileInput.files = e.dataTransfer.files;
+      document.getElementById('btn-restore').disabled = false;
+      updateRestoreSelectedFileLabel(file);
+    });
+  }
+
+  if (tableSearch) {
+    tableSearch.addEventListener('input', function () {
+      const q = (this.value || '').trim().toLowerCase();
+      document.querySelectorAll('#br-tables-table tbody tr[data-table-name]').forEach(row => {
+        row.classList.toggle('d-none', q !== '' && !row.dataset.tableName.includes(q));
+      });
+    });
+  }
+}
+
+function updateRestoreSelectedFileLabel(file) {
+  const el = document.getElementById('restore-selected-file');
+  if (!el) return;
+  if (!file) {
+    el.classList.add('d-none');
+    el.textContent = '';
+    return;
+  }
+  el.classList.remove('d-none');
+  el.textContent = file.name;
+}
+
+function collectSchedulePayload() {
+  return {
+    enabled: document.getElementById('schedule-enabled')?.checked ?? false,
+    frequency: document.getElementById('schedule-frequency')?.value || 'daily',
+    time: document.getElementById('schedule-time')?.value || '02:00',
+    weekday: Number(document.getElementById('schedule-weekday')?.value || 1),
+    storage_type: document.getElementById('schedule-storage')?.value || 'local',
+    backup_scope: document.getElementById('schedule-scope')?.value || 'full',
+  };
+}
+
+function isScheduleActive(data) {
+  return !!(data?.installed);
+}
+
+function updateScheduleStoragePath() {
+  const storage = document.getElementById('schedule-storage')?.value || 'local';
+  const pathEl = document.getElementById('schedule-storage-path');
+  if (!pathEl) return;
+
+  if (storage === 'cloud') {
+    pathEl.textContent = SCHEDULE_BOOT.cloud_storage_label || 'Google Drive';
+    return;
+  }
+
+  const dir = (SCHEDULE_BOOT.local_backup_dir || 'storage/app').replace(/\//g, '\\');
+  const pattern = SCHEDULE_BOOT.local_backup_pattern || 'backup_*.tar.gz';
+  pathEl.textContent = dir + '\\' + pattern.replace('*.tar.gz', 'YYYYMMDD_HHMMSS.tar.gz');
+}
+
+function updateSchedulePreview() {
+  const payload = collectSchedulePayload();
+  const os = SCHEDULE_BOOT.os || 'unknown';
+  const previewEl = document.getElementById('schedule-preview-text');
+  const weekdayWrap = document.getElementById('schedule-weekday-wrap');
+  if (!previewEl) return;
+
+  updateScheduleStoragePath();
+
+  if (weekdayWrap) {
+    weekdayWrap.classList.toggle('d-none', payload.frequency !== 'weekly');
+  }
+
+  const timeLabel = payload.time;
+  let scheduleLabel = 'Setiap hari pukul ' + timeLabel;
+  if (payload.frequency === 'hourly') {
+    const minute = (timeLabel.split(':')[1] || '00');
+    scheduleLabel = 'Setiap jam pada menit ke-' + minute;
+  } else if (payload.frequency === 'weekly') {
+    const days = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+    scheduleLabel = 'Setiap ' + (days[payload.weekday] || 'Senin') + ' pukul ' + timeLabel;
+  }
+
+  if (os === 'windows') {
+    previewEl.textContent = 'Task Scheduler: Absensi_DatabaseBackup — ' + scheduleLabel;
+  } else if (os === 'linux') {
+    const [h, m] = timeLabel.split(':').map(v => parseInt(v, 10) || 0);
+    let expr = m + ' ' + h + ' * * *';
+    if (payload.frequency === 'hourly') expr = m + ' * * * *';
+    if (payload.frequency === 'weekly') expr = m + ' ' + h + ' * * ' + payload.weekday;
+    previewEl.textContent = expr + ' storage/app/run-scheduled-backup.sh # absensi-scheduled-backup';
+  } else {
+    previewEl.textContent = 'OS tidak didukung untuk auto-install scheduler.';
+  }
+}
+
+function setScheduleStatusAlert(type, message) {
+  const el = document.getElementById('schedule-status-alert');
+  if (!el) return;
+  el.classList.remove('d-none', 'alert-success', 'alert-danger', 'alert-info', 'alert-warning');
+  el.classList.add(type === 'success' ? 'alert-success' : type === 'danger' ? 'alert-danger' : type === 'warning' ? 'alert-warning' : 'alert-info');
+  el.textContent = message;
+}
+
+function updateScheduleStatusUI(data) {
+  const active = isScheduleActive(data);
+  const config = data?.config || {};
+  const badge = document.getElementById('schedule-installed-badge');
+  if (badge) {
+    badge.textContent = active ? 'Aktif' : 'Nonaktif';
+    badge.classList.toggle('bg-success', active);
+    badge.classList.toggle('bg-secondary', !active);
+  }
+
+  const enabled = document.getElementById('schedule-enabled');
+  if (enabled) {
+    enabled.checked = active;
+    enabled.setAttribute('aria-checked', active ? 'true' : 'false');
+  }
+
+  const lastRun = document.getElementById('schedule-last-run-at');
+  const lastStatus = document.getElementById('schedule-last-status');
+  const lastFile = document.getElementById('schedule-last-file');
+  if (lastRun) lastRun.textContent = config.last_run_at ? new Date(config.last_run_at).toLocaleString('id-ID') : '-';
+  if (lastStatus) lastStatus.textContent = config.last_status || '-';
+  if (lastFile) lastFile.textContent = config.last_file || '-';
+
+  if (data) {
+    SCHEDULE_BOOT.installed = active;
+    if (data.preview) SCHEDULE_BOOT.preview = data.preview;
+    if (data.os) SCHEDULE_BOOT.os = data.os;
+    if (data.local_backup_dir) SCHEDULE_BOOT.local_backup_dir = data.local_backup_dir;
+    if (data.local_backup_pattern) SCHEDULE_BOOT.local_backup_pattern = data.local_backup_pattern;
+    if (data.cloud_storage_label) SCHEDULE_BOOT.cloud_storage_label = data.cloud_storage_label;
+  }
+  updateSchedulePreview();
+}
+
+function initScheduledBackupUI() {
+  const frequency = document.getElementById('schedule-frequency');
+  const time = document.getElementById('schedule-time');
+  const weekday = document.getElementById('schedule-weekday');
+  const storage = document.getElementById('schedule-storage');
+  const scope = document.getElementById('schedule-scope');
+  const enabled = document.getElementById('schedule-enabled');
+  const applyBtn = document.getElementById('btn-schedule-apply');
+  const disableBtn = document.getElementById('btn-schedule-disable');
+
+  [frequency, time, weekday, storage, scope].forEach(el => {
+    if (el) el.addEventListener('change', updateSchedulePreview);
+  });
+
+  if (enabled) {
+    enabled.addEventListener('change', () => {
+      const pending = enabled.checked;
+      const badge = document.getElementById('schedule-installed-badge');
+      if (badge && !isScheduleActive(SCHEDULE_BOOT)) {
+        badge.textContent = pending ? 'Belum diterapkan' : 'Nonaktif';
+        badge.classList.toggle('bg-success', false);
+        badge.classList.toggle('bg-warning', pending);
+        badge.classList.toggle('bg-secondary', !pending);
+      }
+      updateSchedulePreview();
+    });
+  }
+
+  updateScheduleStatusUI(SCHEDULE_BOOT);
+
+  if (applyBtn) {
+    applyBtn.addEventListener('click', async () => {
+      const payload = collectSchedulePayload();
+      applyBtn.disabled = true;
+      setScheduleStatusAlert('info', 'Menerapkan scheduled backup...');
+
+      try {
+        const res = await fetch(URL_BACKUP_SCHEDULE_APPLY, {
+          method: 'POST',
+          headers: {
+            'X-CSRF-TOKEN': CSRF,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+
+        if (!res.ok || data.success === false) {
+          setScheduleStatusAlert('danger', data.error || 'Gagal menerapkan scheduled backup.');
+          if (data.data) updateScheduleStatusUI(data.data);
+          return;
+        }
+
+        setScheduleStatusAlert('success', data.message || 'Scheduled backup berhasil diterapkan.');
+        if (data.data) updateScheduleStatusUI(data.data);
+      } catch (e) {
+        setScheduleStatusAlert('danger', 'Tidak dapat menghubungi server.');
+      } finally {
+        applyBtn.disabled = false;
+      }
+    });
+  }
+
+  if (disableBtn) {
+    disableBtn.addEventListener('click', async () => {
+      disableBtn.disabled = true;
+      setScheduleStatusAlert('info', 'Menonaktifkan scheduled backup...');
+
+      try {
+        const res = await fetch(URL_BACKUP_SCHEDULE_DISABLE, {
+          method: 'POST',
+          headers: {
+            'X-CSRF-TOKEN': CSRF,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({}),
+        });
+        const data = await res.json();
+
+        if (!res.ok || data.success === false) {
+          setScheduleStatusAlert('danger', data.error || 'Gagal menonaktifkan scheduled backup.');
+          return;
+        }
+
+        if (enabled) enabled.checked = false;
+        setScheduleStatusAlert('success', data.message || 'Scheduled backup dinonaktifkan.');
+        if (data.data) updateScheduleStatusUI(data.data);
+      } catch (e) {
+        setScheduleStatusAlert('danger', 'Tidak dapat menghubungi server.');
+      } finally {
+        disableBtn.disabled = false;
+      }
+    });
+  }
+}
+
+// â”€â”€ CLEAR TABLES â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function initClearTables() {
   const selectAll = document.getElementById('clear-tables-select-all');
   const checks = document.querySelectorAll('.tbl-check');
@@ -1171,7 +1226,7 @@ async function submitClearTables() {
       errEl.classList.remove('d-none');
       confirmBtn.disabled = false;
       confirmBtn.innerHTML = originalHtml;
-      if (window.feather) { feather.replace(); }
+      feather.replace();
       return;
     }
 
@@ -1182,11 +1237,11 @@ async function submitClearTables() {
     errEl.classList.remove('d-none');
     confirmBtn.disabled = false;
     confirmBtn.innerHTML = originalHtml;
-    if (window.feather) { feather.replace(); }
+    feather.replace();
   }
 }
 
-// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ BACKUP ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+// â”€â”€ BACKUP â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function startBackup() {
   const storageType = getSelectedBackupStorageType();
   const backupScope = getSelectedBackupScope();
@@ -1262,7 +1317,7 @@ async function startBackup() {
   }
 }
 
-// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ RESTORE ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+// â”€â”€ RESTORE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let preparedRestore = null;
 
 function resetRestoreButtons() {
@@ -1321,7 +1376,7 @@ function showRestoreConfirm(data) {
     }
   }
 
-  if (window.feather) { feather.replace(); }
+  feather.replace();
   bsConfirm.show();
 }
 
@@ -1399,7 +1454,7 @@ function prepareRestoreLocal() {
   restoreButton.disabled = true;
   restoreInput.disabled = true;
 
-  openProgressModal('Menyiapkan Restore', 'search', '#dc3545');
+  openProgressModal('Menyiapkan Restore', 'search', '#198754');
   updateProgress(2, 'Mengupload & memeriksa file backup...');
 
   const formData = new FormData();
@@ -1454,7 +1509,7 @@ function prepareRestoreCloud() {
   restoreButton.disabled = true;
   pickButton.disabled = true;
 
-  openProgressModal('Menyiapkan Restore', 'search', '#dc3545');
+  openProgressModal('Menyiapkan Restore', 'search', '#198754');
   updateProgress(10, 'Mengambil file dari Google Drive & memeriksa isinya...');
 
   fetch(URL_RESTORE_PREPARE, {
@@ -1500,13 +1555,13 @@ function runPreparedRestore() {
   if (mode === 'table') {
     selectedTables = getSelectedRestoreTables();
     if (!selectedTables.length) {
-      window.appAlert('Pilih minimal satu tabel untuk direstore.');
+      alert('Pilih minimal satu tabel untuk direstore.');
       return;
     }
   }
 
   bsConfirm.hide();
-  openProgressModal(mode === 'table' ? 'Restore Tabel' : 'Restore Database', 'upload-cloud', '#dc3545');
+  openProgressModal(mode === 'table' ? 'Restore Tabel' : 'Restore Database', 'upload-cloud', '#198754');
   updateProgress(8, 'Memulai restore...');
 
   fetch(URL_RESTORE_RUN, {
@@ -1534,7 +1589,7 @@ function runPreparedRestore() {
   });
 }
 
-// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ POLLING ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+// â”€â”€ POLLING â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function pollProgress(token, onComplete) {
   if (pollTimer) clearInterval(pollTimer);
   activeProgressToken = token;
@@ -1562,7 +1617,7 @@ function pollProgress(token, onComplete) {
   }, 500);
 }
 
-// ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ MODAL HELPERS ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
+// â”€â”€ MODAL HELPERS â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function openProgressModal(title, icon, color) {
   if (pollTimer) clearInterval(pollTimer);
   if (progressElapsedTimer) clearInterval(progressElapsedTimer);
@@ -1575,7 +1630,7 @@ function openProgressModal(title, icon, color) {
   const ico = document.getElementById('progress-modal-icon');
   ico.setAttribute('data-feather', icon);
   ico.style.color = color;
-  if (window.feather) { feather.replace(); }
+  feather.replace();
 
   updateProgress(0, 'Memulai...');
   const liveStatus = document.getElementById('progress-live-status');
@@ -1607,7 +1662,12 @@ function openProgressModal(title, icon, color) {
     }
   }, 500);
 
-  bsProgress.show();
+  if (bsProgress) {
+    bsProgress.show();
+    return;
+  }
+
+  alert('Progress modal tidak tersedia. Pastikan Bootstrap JS termuat, lalu refresh halaman.');
 }
 
 function updateProgress(pct, msg) {
@@ -1617,6 +1677,11 @@ function updateProgress(pct, msg) {
   bar.setAttribute('aria-valuenow', p);
   bar.textContent         = p + '%';
   document.getElementById('progress-message').textContent = msg || '';
+
+  if (migrationIsRunning) {
+    updateInlineMigrationProgress(p, msg);
+    if (msg) appendMigrationLog(msg);
+  }
 
   const liveStatus = document.getElementById('progress-live-status');
   if (liveStatus && !liveStatus.dataset.fixed) {
@@ -1638,6 +1703,16 @@ function setProgressDone(msg) {
   document.getElementById('progress-modal-close').classList.remove('d-none');
   setProgressLiveStatus('Proses selesai');
   stopProgressTimers();
+
+  if (migrationIsRunning) {
+    migrationIsRunning = false;
+    stopMigrationInlineTimer();
+    updateInlineMigrationProgress(100, msg || 'Migrasi selesai!');
+    showMigrationStep(4);
+    const summary = document.getElementById('migration-done-summary');
+    if (summary) summary.textContent = msg || 'Semua tabel berhasil dimigrasikan ke destination server.';
+    feather.replace();
+  }
 }
 
 function stopProgressTimers() {
@@ -1720,6 +1795,11 @@ function runMigrationExecution() {
 
   bsMigrationConfirm.hide();
   setMigrationExecutionStatus('info', 'Migration dimulai di server tujuan. Menyiapkan progress...');
+  migrationIsRunning = true;
+  showMigrationStep(3);
+  startMigrationInlineTimer();
+  const logs = document.getElementById('migration-inline-logs');
+  if (logs) logs.innerHTML = '<div class="dm-log-line text-muted">Memulai migrasi...</div>';
   openProgressModal('Migration Execution', 'shuffle', '#ffc107');
   updateProgress(2, 'Menyiapkan migration ' + modeLabel + '...');
 
@@ -1777,8 +1857,10 @@ function runMigrationExecution() {
     });
 
     pollProgress(body.token, () => {
-      setProgressDone('Migration selesai! Memuat ulang halaman...');
-      setTimeout(() => window.location.reload(), 2500);
+      setProgressDone('Migration selesai! Semua tabel berhasil dimigrasikan.');
+      setTimeout(() => {
+        bsProgress.hide();
+      }, 1500);
     });
   })
   .catch(() => {
@@ -1923,7 +2005,7 @@ async function runRollbackSwitchServer() {
 
 function showProgressError(msg) {
   const errEl = document.getElementById('progress-modal-error');
-  errEl.textContent = 'ÃƒÂ¢Ã…Â¡Ã‚Â  ' + msg;
+  errEl.textContent = 'âš  ' + msg;
   errEl.classList.remove('d-none');
   toggleProgressDownload({}, null);
   document.getElementById('progress-modal-close').classList.remove('d-none');
@@ -1932,6 +2014,14 @@ function showProgressError(msg) {
   bar.classList.add('bg-danger');
   setProgressLiveStatus('Terjadi kendala');
   stopProgressTimers();
+
+  if (migrationIsRunning) {
+    migrationIsRunning = false;
+    stopMigrationInlineTimer();
+    updateInlineMigrationProgress(0, 'Migrasi gagal: ' + msg);
+    appendMigrationLog('ERROR: ' + msg);
+    setMigrationExecutionStatus('danger', msg);
+  }
 }
 
 function collectSourceConfigPayload() {
@@ -1994,13 +2084,16 @@ async function saveSourceConfig() {
   }
 }
 
-async function loadSourceConfig() {
-  const button = document.getElementById('btn-load-source-config');
-  const originalLabel = button.textContent;
-  button.disabled = true;
-  button.textContent = 'Loading...';
+async function loadSourceConfig(triggerButton) {
+  const button = triggerButton || document.getElementById('btn-load-source-config');
+  if (!button) return;
 
-  renderSourceTestResult('info', 'Memuat konfigurasi dari database yang aktif sekarang...');
+  const originalLabel = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span>';
+
+  setVerifiedBadge('source', false);
+  renderSourceTestResult('info', 'Mengambil konfigurasi dari .env...');
 
   try {
     const response = await fetch(URL_MIGRATION_SOURCE_LOAD_CONFIG, {
@@ -2011,17 +2104,21 @@ async function loadSourceConfig() {
 
     const data = await response.json();
     if (!response.ok || data.success === false || !data.config) {
-      renderSourceTestResult('danger', data.error || 'Gagal memuat konfigurasi Source Server.');
+      renderSourceTestResult('danger', '<i data-feather="x-circle" style="width:13px;height:13px"></i> ' + escapeHtml(data.error || 'Gagal mengambil konfigurasi Source Server dari .env.'));
+      feather.replace();
       return;
     }
 
     applySourceConfigToForm(data.config);
-    renderSourceTestResult('success', 'Konfigurasi Source Server dimuat dari database aktif sekarang.');
+    const sourceLabel = data.source_label || 'DB_*';
+    renderSourceTestResult('success', '<i data-feather="check-circle" style="width:13px;height:13px"></i> Data berhasil diambil dari .env (' + escapeHtml(sourceLabel) + ').');
+    feather.replace();
   } catch (error) {
-    renderSourceTestResult('danger', 'Tidak dapat menghubungi server saat memuat konfigurasi source.');
+    renderSourceTestResult('danger', 'Tidak dapat menghubungi server saat mengambil konfigurasi source.');
   } finally {
     button.disabled = false;
-    button.textContent = originalLabel;
+    button.innerHTML = originalLabel;
+    feather.replace();
   }
 }
 
@@ -2034,9 +2131,6 @@ function applySourceConfigToForm(config) {
   document.getElementById('migration-source-database').value = config.database || '';
   document.getElementById('migration-source-username').value = config.username || '';
   document.getElementById('migration-source-password').value = config.password || '';
-  if (config.password_set) {
-    document.getElementById('migration-source-password').placeholder = '(tersimpan — isi ulang jika mau uji koneksi)';
-  }
 }
 
 async function saveDestinationConfig() {
@@ -2073,13 +2167,16 @@ async function saveDestinationConfig() {
   }
 }
 
-async function loadDestinationConfig() {
-  const button = document.getElementById('btn-load-destination-config');
-  const originalLabel = button.textContent;
-  button.disabled = true;
-  button.textContent = 'Loading...';
+async function loadDestinationConfig(triggerButton) {
+  const button = triggerButton || document.getElementById('btn-load-destination-config');
+  if (!button) return;
 
-  renderDestinationTestResult('info', 'Memuat konfigurasi Destination Server dari .env...');
+  const originalLabel = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span>';
+
+  setVerifiedBadge('destination', false);
+  renderDestinationTestResult('info', 'Mengambil konfigurasi dari .env...');
 
   try {
     const response = await fetch(URL_MIGRATION_DESTINATION_LOAD_CONFIG, {
@@ -2090,17 +2187,21 @@ async function loadDestinationConfig() {
 
     const data = await response.json();
     if (!response.ok || data.success === false || !data.config) {
-      renderDestinationTestResult('danger', data.error || 'Gagal memuat konfigurasi Destination Server.');
+      renderDestinationTestResult('danger', '<i data-feather="x-circle" style="width:13px;height:13px"></i> ' + escapeHtml(data.error || 'Gagal mengambil konfigurasi Destination Server dari .env.'));
+      feather.replace();
       return;
     }
 
     applyDestinationConfigToForm(data.config);
-    renderDestinationTestResult('success', 'Konfigurasi Destination Server berhasil dimuat dari .env.');
+    const sourceLabel = data.source_label || 'MIGRATION_DESTINATION_DB_*';
+    renderDestinationTestResult('success', '<i data-feather="check-circle" style="width:13px;height:13px"></i> Data berhasil diambil dari .env (' + escapeHtml(sourceLabel) + ').');
+    feather.replace();
   } catch (error) {
-    renderDestinationTestResult('danger', 'Tidak dapat menghubungi server saat memuat konfigurasi destination.');
+    renderDestinationTestResult('danger', 'Tidak dapat menghubungi server saat mengambil konfigurasi destination.');
   } finally {
     button.disabled = false;
-    button.textContent = originalLabel;
+    button.innerHTML = originalLabel;
+    feather.replace();
   }
 }
 
@@ -2113,9 +2214,6 @@ function applyDestinationConfigToForm(config) {
   document.getElementById('migration-destination-database').value = config.database || '';
   document.getElementById('migration-destination-username').value = config.username || '';
   document.getElementById('migration-destination-password').value = config.password || '';
-  if (config.password_set) {
-    document.getElementById('migration-destination-password').placeholder = '(tersimpan — isi ulang jika mau uji koneksi)';
-  }
 }
 
 function formatNumber(value) {
@@ -2197,20 +2295,22 @@ async function testSourceConnection() {
 
     const data = await response.json();
     if (!response.ok || data.connected === false) {
-      renderSourceTestResult('danger', data.error || 'Gagal konek ke source server.');
+      renderSourceTestResult('danger', '<i data-feather="x-circle" style="width:13px;height:13px"></i> ' + escapeHtml(data.error || 'Gagal konek ke source server.'));
+      setVerifiedBadge('source', false);
       updateAnalysisCard('source', { failed: true });
+      feather.replace();
       return;
     }
 
     updateAnalysisCard('source', data);
+    if (data.table_list) renderMigrationTableList(data.table_list);
+    setVerifiedBadge('source', true);
+    setDmStepperStep(2);
     renderSourceTestResult(
       'success',
-      'Connected (' + escapeHtml(data.driver || driver.toUpperCase()) + ') - Database: ' +
-      escapeHtml(data.database || database) +
-      ' - Tables: ' + escapeHtml(String(data.tables ?? 0)) +
-      ' - Records: ' + escapeHtml(formatNumber(data.total_records ?? 0)) +
-      ' - Size: ' + escapeHtml(data.size_human || '-')
+      '<i data-feather="check-circle" style="width:13px;height:13px"></i> Koneksi berhasil!'
     );
+    feather.replace();
   } catch (error) {
     renderSourceTestResult('danger', 'Tidak dapat menghubungi server.');
     updateAnalysisCard('source', { failed: true });
@@ -2224,17 +2324,8 @@ function renderSourceTestResult(type, message) {
   const el = document.getElementById('migration-source-test-result');
   if (!el) return;
 
-  el.classList.remove('d-none', 'alert-info', 'alert-success', 'alert-warning', 'alert-danger');
-  if (type === 'success') {
-    el.classList.add('alert-success');
-  } else if (type === 'warning') {
-    el.classList.add('alert-warning');
-  } else if (type === 'danger') {
-    el.classList.add('alert-danger');
-  } else {
-    el.classList.add('alert-info');
-  }
-
+  el.classList.remove('d-none', 'success', 'danger', 'warning', 'info');
+  el.classList.add(type === 'success' ? 'success' : type === 'warning' ? 'warning' : type === 'danger' ? 'danger' : 'info');
   el.innerHTML = message;
 }
 
@@ -2279,8 +2370,10 @@ async function testDestinationConnection() {
 
     const data = await response.json();
     if (!response.ok || data.connected === false) {
-      renderDestinationTestResult('danger', data.error || 'Gagal konek ke destination server.');
+      renderDestinationTestResult('danger', '<i data-feather="x-circle" style="width:13px;height:13px"></i> ' + escapeHtml(data.error || 'Gagal konek ke destination server.'));
+      setVerifiedBadge('destination', false);
       updateAnalysisCard('destination', { failed: true });
+      feather.replace();
       return;
     }
 
@@ -2289,16 +2382,13 @@ async function testDestinationConnection() {
     const showClearButton = !data.database_empty && (data.driver || '').toUpperCase() === 'PGSQL';
 
     updateAnalysisCard('destination', data);
+    setVerifiedBadge('destination', true);
     renderDestinationTestResult(
       resultType,
-      'Connected (' + escapeHtml(data.driver || driver.toUpperCase()) + ') - Database: ' +
-      escapeHtml(data.database || database) +
-      ' - Tables: ' + escapeHtml(String(data.tables ?? 0)) +
-      ' - Records: ' + escapeHtml(formatNumber(data.total_records ?? 0)) +
-      ' - Size: ' + escapeHtml(data.size_human || '-') +
-      ' - Status: ' + escapeHtml(statusLabel),
+      '<i data-feather="check-circle" style="width:13px;height:13px"></i> Koneksi berhasil!',
       showClearButton
     );
+    feather.replace();
   } catch (error) {
     renderDestinationTestResult('danger', 'Tidak dapat menghubungi server destination.');
     updateAnalysisCard('destination', { failed: true });
@@ -2312,22 +2402,14 @@ function renderDestinationTestResult(type, message, showClearButton = false) {
   const el = document.getElementById('migration-destination-test-result');
   if (!el) return;
 
-  el.classList.remove('d-none', 'alert-info', 'alert-success', 'alert-warning', 'alert-danger');
-  if (type === 'success') {
-    el.classList.add('alert-success');
-  } else if (type === 'warning') {
-    el.classList.add('alert-warning');
-  } else if (type === 'danger') {
-    el.classList.add('alert-danger');
-  } else {
-    el.classList.add('alert-info');
-  }
+  el.classList.remove('d-none', 'success', 'danger', 'warning', 'info');
+  el.classList.add(type === 'success' ? 'success' : type === 'warning' ? 'warning' : type === 'danger' ? 'danger' : 'info');
 
   const clearButtonHtml = showClearButton
-    ? '<div class="mt-2"><button id="btn-clear-destination-data" type="button" class="btn btn-danger btn-sm">Hapus Data Tujuan</button></div>'
+    ? '<div class="mt-2 w-100"><button id="btn-clear-destination-data" type="button" class="btn btn-danger btn-sm">Hapus Data Tujuan</button></div>'
     : '';
 
-  el.innerHTML = '<div>' + message + '</div>' + clearButtonHtml;
+  el.innerHTML = '<div class="d-flex align-items-center flex-wrap gap-2">' + message + clearButtonHtml + '</div>';
 
   if (showClearButton) {
     const clearButton = document.getElementById('btn-clear-destination-data');
@@ -2408,7 +2490,7 @@ function toggleProgressDownload(meta, token) {
     }
 
     link.classList.remove('d-none');
-    if (window.feather) { feather.replace(); }
+    feather.replace();
     return;
   }
 
@@ -2457,6 +2539,14 @@ function renderProgressMeta(meta) {
     lines.push(['Tabel diproses', processed + ' / ' + meta.total_tables]);
   }
   if (meta.current_table) lines.push(['Tabel aktif', meta.current_table]);
+  if (migrationIsRunning && meta.current_table) {
+    let statusText = 'Memigrasi tabel: ' + meta.current_table;
+    if (typeof meta.table_rows_total !== 'undefined' && Number(meta.table_rows_total) > 0) {
+      statusText += ' (' + (meta.table_rows_processed ?? 0) + ' / ' + meta.table_rows_total + ' rows)';
+    }
+    const statusEl = document.getElementById('migration-inline-status');
+    if (statusEl) statusEl.textContent = statusText;
+  }
   if (meta.source_tables_text) lines.push(['Daftar tabel source', meta.source_tables_text]);
   if (meta.total_tables || typeof meta.table_transfer_pct !== 'undefined') {
     const transferPctRaw = typeof meta.table_transfer_pct !== 'undefined'
@@ -2628,6 +2718,5 @@ function loadGoogleDriveBackupFiles() {
       error.classList.remove('d-none');
     });
 }
-</script>
-    @endpush
+</script>    @endpush
 </x-app-layout>

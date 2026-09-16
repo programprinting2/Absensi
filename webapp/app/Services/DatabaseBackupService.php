@@ -9,6 +9,8 @@ class DatabaseBackupService
 {
     private $googleDriveStorage;
 
+    private bool $replicationRoleActive = false;
+
     public function __construct(GoogleDriveStorageService $googleDriveStorage)
     {
         $this->googleDriveStorage = $googleDriveStorage;
@@ -121,7 +123,7 @@ class DatabaseBackupService
         ]);
     }
 
-    public function runBackup(string $token, string $userName, string $storageType = 'local', string $backupScope = 'full'): void
+    public function runBackup(string $token, string $userName, string $storageType = 'local', string $backupScope = 'full', string $source = 'manual'): void
     {
         $startedAt = now();
         $startedTs = microtime(true);
@@ -162,7 +164,9 @@ class DatabaseBackupService
             ]);
 
             $tables = DB::select("SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE' ORDER BY table_name");
-            $tableNames = collect($tables)->pluck('table_name')->toArray();
+            $tableNames = $this->sortTablesByForeignKeyDependencies(
+                collect($tables)->pluck('table_name')->toArray()
+            );
             $total = count($tableNames);
             $timestamp = now()->format('Ymd_His');
 
@@ -316,6 +320,21 @@ class DatabaseBackupService
                 ]));
 
                 $driveFile = $this->googleDriveStorage->uploadFile($targzPath, $fileName, 'application/gzip');
+
+                $this->recordBackupHistory([
+                    'timestamp' => time(),
+                    'type' => 'backup',
+                    'type_label' => $source === 'scheduled' ? 'Backup (Terjadwal)' : 'Backup',
+                    'source' => $source,
+                    'storage_type' => 'cloud',
+                    'file' => $driveFile['filename'] ?? $fileName,
+                    'detail' => 'Google Drive · ' . $backupScopeLabel,
+                    'size' => $this->formatBytes($fileSize),
+                    'size_bytes' => $fileSize,
+                    'status' => 'Selesai',
+                    'user' => $userName,
+                ]);
+
                 @unlink($targzPath);
 
                 $this->setProgress($token, 100, 'Backup selesai! File berhasil diupload ke Google Drive.', null, null, array_merge($baseMeta, [
@@ -339,6 +358,20 @@ class DatabaseBackupService
             }
 
             Cache::put("db_backup_{$token}", $targzPath, now()->addHours(1));
+
+            $this->recordBackupHistory([
+                'timestamp' => time(),
+                'type' => 'backup',
+                'type_label' => $source === 'scheduled' ? 'Backup (Terjadwal)' : 'Backup',
+                'source' => $source,
+                'storage_type' => 'local',
+                'file' => $fileName,
+                'detail' => $backupScopeLabel,
+                'size' => $this->formatBytes($fileSize),
+                'size_bytes' => $fileSize,
+                'status' => 'Selesai',
+                'user' => $userName,
+            ]);
 
             $this->setProgress($token, 100, 'Backup selesai! File siap diunduh.', $targzPath, null, array_merge($baseMeta, [
                 'stage' => 'completed',
@@ -380,6 +413,106 @@ class DatabaseBackupService
     public function humanBytes(int $bytes): string
     {
         return $this->formatBytes($bytes);
+    }
+
+    public function listBackupHistory(int $limit = 25): array
+    {
+        $items = $this->readBackupHistoryEntries();
+        $knownFiles = collect($items)->pluck('file')->filter()->flip();
+
+        $files = array_merge(
+            glob(storage_path('app/backup_*.tar')) ?: [],
+            glob(storage_path('app/backup_*.tar.gz')) ?: []
+        );
+
+        foreach ($files as $path) {
+            $base = basename($path);
+            if ($knownFiles->has($base)) {
+                continue;
+            }
+
+            $mtime = @filemtime($path) ?: time();
+            $size = (int) (@filesize($path) ?: 0);
+            $items[] = [
+                'timestamp' => $mtime,
+                'date' => date('d/m/Y H:i', $mtime),
+                'type' => 'backup',
+                'type_label' => 'Backup',
+                'source' => 'manual',
+                'storage_type' => 'local',
+                'file' => $base,
+                'detail' => 'Full Backup',
+                'size' => $this->formatBytes($size),
+                'size_bytes' => $size,
+                'status' => 'Selesai',
+                'user' => '-',
+            ];
+        }
+
+        return collect($items)
+            ->sortByDesc(fn (array $item) => (int) ($item['timestamp'] ?? 0))
+            ->take($limit)
+            ->values()
+            ->map(fn (array $item) => [
+                'date' => $item['date'] ?? date('d/m/Y H:i', (int) ($item['timestamp'] ?? time())),
+                'type' => $item['type'] ?? 'backup',
+                'type_label' => $item['type_label'] ?? 'Backup',
+                'file' => $item['file'] ?? '-',
+                'detail' => $item['detail'] ?? '-',
+                'size' => $item['size'] ?? '-',
+                'status' => $item['status'] ?? 'Selesai',
+                'timestamp' => (int) ($item['timestamp'] ?? 0),
+            ])
+            ->all();
+    }
+
+    /**
+     * @param  array<string, mixed>  $entry
+     */
+    public function recordBackupHistory(array $entry): void
+    {
+        $items = $this->readBackupHistoryEntries();
+        $items[] = array_merge([
+            'timestamp' => time(),
+            'date' => now()->format('d/m/Y H:i'),
+            'type' => 'backup',
+            'type_label' => 'Backup',
+            'source' => 'manual',
+            'storage_type' => 'local',
+            'status' => 'Selesai',
+        ], $entry);
+
+        $items = collect($items)
+            ->sortByDesc(fn (array $item) => (int) ($item['timestamp'] ?? 0))
+            ->take(100)
+            ->values()
+            ->all();
+
+        file_put_contents(
+            $this->backupHistoryPath(),
+            json_encode($items, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES),
+            LOCK_EX
+        );
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function readBackupHistoryEntries(): array
+    {
+        $path = $this->backupHistoryPath();
+        if (!is_file($path)) {
+            return [];
+        }
+
+        $decoded = json_decode((string) file_get_contents($path), true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function backupHistoryPath(): string
+    {
+        return storage_path('app/backup_history.json');
     }
 
     /**
@@ -551,7 +684,11 @@ class DatabaseBackupService
             }
             fclose($scan);
 
-            DB::statement('SET session_replication_role = replica;');
+            $this->enableReplicationRole();
+            $replicationActive = $this->replicationRoleActive;
+            if (!$replicationActive) {
+                $this->disableTableTriggers($targets);
+            }
             DB::beginTransaction();
 
             try {
@@ -647,7 +784,10 @@ class DatabaseBackupService
                 DB::rollBack();
                 throw $e;
             } finally {
-                DB::statement('SET session_replication_role = DEFAULT;');
+                if (!$replicationActive) {
+                    $this->enableTableTriggers($targets);
+                }
+                $this->disableReplicationRole();
             }
 
             $this->setProgress($token, 100, 'Restore tabel selesai!', null, null, array_merge($baseMeta, [
@@ -764,7 +904,12 @@ class DatabaseBackupService
                 'duration_label' => $this->formatDuration(microtime(true) - $startedTs),
             ]));
 
-            DB::statement('SET session_replication_role = replica;');
+            $tables = $this->getPublicTableNames();
+            $this->enableReplicationRole();
+            $replicationActive = $this->replicationRoleActive;
+            if (!$replicationActive) {
+                $this->disableTableTriggers($tables);
+            }
             DB::beginTransaction();
 
             try {
@@ -813,7 +958,10 @@ class DatabaseBackupService
                 DB::rollBack();
                 throw $e;
             } finally {
-                DB::statement('SET session_replication_role = DEFAULT;');
+                if (!$replicationActive) {
+                    $this->enableTableTriggers($tables);
+                }
+                $this->disableReplicationRole();
             }
 
             $this->setProgress($token, 100, 'Restore selesai!', null, null, array_merge($baseMeta, [
@@ -1431,6 +1579,180 @@ class DatabaseBackupService
         }
 
         return sprintf('%02d:%02d', $minutes, $secs);
+    }
+
+    private function enableReplicationRole(): void
+    {
+        $this->replicationRoleActive = false;
+
+        try {
+            DB::statement('SET session_replication_role = replica;');
+            $this->replicationRoleActive = true;
+        } catch (\Throwable $e) {
+            if (!$this->isReplicationRolePermissionDenied($e)) {
+                throw $e;
+            }
+        }
+    }
+
+    private function disableReplicationRole(): void
+    {
+        if (!$this->replicationRoleActive) {
+            return;
+        }
+
+        try {
+            DB::statement('SET session_replication_role = DEFAULT;');
+        } catch (\Throwable $e) {
+            // Abaikan jika enable sebelumnya juga gagal (user tanpa hak superuser).
+        } finally {
+            $this->replicationRoleActive = false;
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function getPublicTableNames(): array
+    {
+        return collect(DB::select(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name"
+        ))->pluck('table_name')->all();
+    }
+
+    /**
+     * Urutkan tabel agar parent FK di-insert sebelum child (untuk backup tanpa replication role).
+     *
+     * @param  list<string>  $tableNames
+     * @return list<string>
+     */
+    private function sortTablesByForeignKeyDependencies(array $tableNames): array
+    {
+        if ($tableNames === []) {
+            return [];
+        }
+
+        $nameSet = array_flip($tableNames);
+        $children = [];
+        $inDegree = [];
+
+        foreach ($tableNames as $table) {
+            $children[$table] = [];
+            $inDegree[$table] = 0;
+        }
+
+        $fkRows = DB::select(
+            "SELECT tc.table_name, ccu.table_name AS foreign_table_name
+             FROM information_schema.table_constraints tc
+             JOIN information_schema.key_column_usage kcu
+               ON tc.constraint_name = kcu.constraint_name
+              AND tc.constraint_schema = kcu.constraint_schema
+             JOIN information_schema.constraint_column_usage ccu
+               ON ccu.constraint_name = tc.constraint_name
+              AND ccu.constraint_schema = tc.constraint_schema
+             WHERE tc.constraint_type = 'FOREIGN KEY'
+               AND tc.table_schema = 'public'"
+        );
+
+        foreach ($fkRows as $row) {
+            $child = (string) $row->table_name;
+            $parent = (string) $row->foreign_table_name;
+
+            if (!isset($nameSet[$child], $nameSet[$parent]) || $child === $parent) {
+                continue;
+            }
+
+            if (!in_array($child, $children[$parent], true)) {
+                $children[$parent][] = $child;
+                $inDegree[$child]++;
+            }
+        }
+
+        $queue = [];
+        foreach ($tableNames as $table) {
+            if ($inDegree[$table] === 0) {
+                $queue[] = $table;
+            }
+        }
+
+        $sorted = [];
+        while ($queue !== []) {
+            sort($queue, SORT_STRING);
+            $current = array_shift($queue);
+            $sorted[] = $current;
+
+            foreach ($children[$current] as $child) {
+                $inDegree[$child]--;
+                if ($inDegree[$child] === 0) {
+                    $queue[] = $child;
+                }
+            }
+        }
+
+        if (count($sorted) !== count($tableNames)) {
+            foreach ($tableNames as $table) {
+                if (!in_array($table, $sorted, true)) {
+                    $sorted[] = $table;
+                }
+            }
+        }
+
+        return $sorted;
+    }
+
+    /**
+     * Fallback saat session_replication_role tidak tersedia (user non-superuser).
+     *
+     * @param  list<string>  $tableNames
+     */
+    private function disableTableTriggers(array $tableNames): void
+    {
+        $failed = [];
+
+        foreach ($tableNames as $table) {
+            $quoted = '"' . str_replace('"', '""', $table) . '"';
+
+            try {
+                DB::statement("ALTER TABLE {$quoted} DISABLE TRIGGER ALL");
+            } catch (\Throwable $e) {
+                $failed[] = $table;
+            }
+        }
+
+        if ($failed !== []) {
+            $this->enableTableTriggers(array_values(array_diff($tableNames, $failed)));
+
+            throw new \RuntimeException(
+                'Tidak bisa menonaktifkan foreign key untuk restore pada tabel: '
+                . implode(', ', array_slice($failed, 0, 5))
+                . (count($failed) > 5 ? '...' : '')
+                . '. Pastikan user database adalah owner tabel atau punya hak superuser PostgreSQL.'
+            );
+        }
+    }
+
+    /**
+     * @param  list<string>  $tableNames
+     */
+    private function enableTableTriggers(array $tableNames): void
+    {
+        foreach ($tableNames as $table) {
+            $quoted = '"' . str_replace('"', '""', $table) . '"';
+
+            try {
+                DB::statement("ALTER TABLE {$quoted} ENABLE TRIGGER ALL");
+            } catch (\Throwable $e) {
+                // Best-effort — jangan gagalkan restore yang sudah sukses.
+            }
+        }
+    }
+
+    private function isReplicationRolePermissionDenied(\Throwable $e): bool
+    {
+        $message = $e->getMessage();
+
+        return str_contains($message, 'session_replication_role')
+            || str_contains($message, '42501');
     }
 
     private function deleteDirectory(string $dir): void

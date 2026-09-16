@@ -14,6 +14,7 @@ String cachedUrl;
 String cachedKey;
 String cachedDeviceCode;
 String cachedDashboardUrl;
+String cachedMode = "laravel";
 
 String trimTrailingSlash(String url) {
     while (url.endsWith("/")) {
@@ -28,11 +29,21 @@ String normalizeUrl(const String &url) {
     return trimTrailingSlash(trimmed);
 }
 
+String normalizeMode(const String &mode) {
+    String m = mode;
+    m.trim();
+    if (m == "supabase" || m == "rest") {
+        return m;
+    }
+    return "laravel";
+}
+
 void loadDefaults() {
     cachedUrl = normalizeUrl(String(SUPABASE_URL));
     cachedKey = String(SUPABASE_ANON_KEY);
     cachedDeviceCode = String(DEVICE_CODE);
     cachedDashboardUrl = normalizeUrl(String(DEFAULT_DASHBOARD_URL));
+    cachedMode = "laravel";
 }
 
 bool isValidServerUrl(const String &url) {
@@ -53,18 +64,33 @@ bool isSupabaseUrl(const String &url) {
     return url.indexOf("supabase.co") >= 0;
 }
 
-bool isValidDataConfig(const String &url, const String &key, const String &code) {
+String inferModeFromUrl(const String &url) {
+    if (isSupabaseUrl(url)) {
+        return "supabase";
+    }
+    return "laravel";
+}
+
+bool isValidDataConfig(const String &mode, const String &url, const String &key, const String &code) {
     if (!isValidServerUrl(url) || code.length() == 0) {
         return false;
     }
-    // Supabase cloud wajib API key. Laravel lokal (http) API key boleh kosong.
-    if (isSupabaseUrl(url) && key.length() == 0) {
-        return false;
+
+    const String normalizedMode = normalizeMode(mode);
+
+    if (normalizedMode == "laravel") {
+        return true;
     }
-    if (url.startsWith("https://") && !isSupabaseUrl(url) && key.length() == 0) {
-        return false;
+
+    if (normalizedMode == "supabase") {
+        return isSupabaseUrl(url) && key.length() > 0;
     }
-    return true;
+
+    if (normalizedMode == "rest") {
+        return !isSupabaseUrl(url) && key.length() > 0;
+    }
+
+    return false;
 }
 
 } // namespace
@@ -87,11 +113,17 @@ void begin() {
         String key = prefs.getString("key", "");
         String code = prefs.getString("code", "");
         String dashboard = prefs.getString("dashboard", "");
+        String mode = prefs.getString("mode", "");
 
-        if (isValidDataConfig(url, key, code)) {
+        if (mode.length() == 0) {
+            mode = inferModeFromUrl(url);
+        }
+
+        if (isValidDataConfig(mode, url, key, code)) {
             cachedUrl = normalizeUrl(url);
             cachedKey = key;
             cachedDeviceCode = code;
+            cachedMode = normalizeMode(mode);
         } else {
             storedInNvs = false;
         }
@@ -111,7 +143,7 @@ void begin() {
     Serial.print(F("[server_config] device_code="));
     Serial.println(cachedDeviceCode);
     Serial.print(F("[server_config] mode="));
-    Serial.println(useRestApi() ? F("supabase") : F("laravel"));
+    Serial.println(apiMode());
     Serial.print(F("[server_config] source="));
     Serial.println(storedInNvs ? F("NVS") : F("default(config.h)"));
 }
@@ -140,12 +172,16 @@ bool dashboardUseTls() {
     return cachedDashboardUrl.startsWith("https://");
 }
 
+String apiMode() {
+    return cachedMode;
+}
+
 bool useRestApi() {
-    return isSupabaseUrl(cachedUrl);
+    return cachedMode == "supabase" || cachedMode == "rest";
 }
 
 String heartbeatBaseUrl() {
-    if (!useRestApi()) {
+    if (cachedMode == "laravel" || cachedMode == "rest") {
         return cachedUrl;
     }
     return cachedDashboardUrl.length() > 0 ? cachedDashboardUrl : cachedUrl;
@@ -155,21 +191,30 @@ bool hasStoredConfig() {
     return storedInNvs;
 }
 
-bool save(const String &url, const String &key, const String &code, const String &dashboardUrlIn) {
+bool save(const String &url, const String &key, const String &code, const String &dashboardUrlIn,
+          const String &mode) {
     String normalizedUrl = normalizeUrl(url);
     String trimmedKey = key;
     trimmedKey.trim();
     String trimmedCode = code;
     trimmedCode.trim();
     String normalizedDashboard = normalizeUrl(dashboardUrlIn);
+    const String normalizedMode = normalizeMode(mode);
 
-    if (!isValidDataConfig(normalizedUrl, trimmedKey, trimmedCode)) {
+    if (!isValidDataConfig(normalizedMode, normalizedUrl, trimmedKey, trimmedCode)) {
         Serial.println(F("[server_config] save ditolak: Server URL/API Key/Device Code tidak valid"));
         return false;
     }
 
-    if (normalizedDashboard.length() == 0 && !isSupabaseUrl(normalizedUrl)) {
-        normalizedDashboard = normalizedUrl;
+    if (normalizedMode == "laravel" || normalizedMode == "rest") {
+        if (normalizedDashboard.length() == 0) {
+            normalizedDashboard = normalizedUrl;
+        }
+    }
+
+    if (normalizedMode == "supabase" && normalizedDashboard.length() == 0) {
+        Serial.println(F("[server_config] save ditolak: dashboard URL wajib untuk Supabase"));
+        return false;
     }
 
     if (!isValidDashboardUrl(normalizedDashboard)) {
@@ -186,6 +231,7 @@ bool save(const String &url, const String &key, const String &code, const String
     prefs.putString("key", trimmedKey);
     prefs.putString("code", trimmedCode);
     prefs.putString("dashboard", normalizedDashboard);
+    prefs.putString("mode", normalizedMode);
     prefs.putBool("configured", true);
     prefs.end();
 
@@ -193,10 +239,13 @@ bool save(const String &url, const String &key, const String &code, const String
     cachedKey = trimmedKey;
     cachedDeviceCode = trimmedCode;
     cachedDashboardUrl = normalizedDashboard;
+    cachedMode = normalizedMode;
     storedInNvs = true;
     loaded = true;
 
     Serial.println(F("[server_config] disimpan ke NVS"));
+    Serial.print(F("[server_config] mode="));
+    Serial.println(cachedMode);
     Serial.print(F("[server_config] dashboard="));
     Serial.println(cachedDashboardUrl);
 

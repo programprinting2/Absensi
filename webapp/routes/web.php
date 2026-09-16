@@ -94,6 +94,10 @@ Route::middleware(['auth', 'verified', 'menu'])->group(function () {
     Route::get('tools/database', [DatabaseInfoController::class, 'index'])->name('tools.database');
     Route::post('tools/database/backup/start', [DatabaseBackupController::class, 'backupStart'])->name('tools.database.backup.start');
     Route::post('tools/database/backup/run', [DatabaseBackupController::class, 'backupRun'])->name('tools.database.backup.run');
+    Route::get('tools/database/backup/schedule', [DatabaseBackupController::class, 'scheduleStatus'])->name('tools.database.backup.schedule.status');
+    Route::post('tools/database/backup/schedule/save', [DatabaseBackupController::class, 'scheduleSave'])->name('tools.database.backup.schedule.save');
+    Route::post('tools/database/backup/schedule/apply', [DatabaseBackupController::class, 'scheduleApply'])->name('tools.database.backup.schedule.apply');
+    Route::post('tools/database/backup/schedule/disable', [DatabaseBackupController::class, 'scheduleDisable'])->name('tools.database.backup.schedule.disable');
     Route::get('tools/database/backup/download/{token}', [DatabaseBackupController::class, 'backupDownload'])
         ->where('token', '[^/]+')
         ->name('tools.database.backup.download');
