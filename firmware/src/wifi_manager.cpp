@@ -36,10 +36,20 @@ void appendJsEscaped(const String &value, String &out) {
     }
 }
 
+const char *modeLabelFor(const String &mode) {
+    if (mode == "rest") {
+        return "Server REST";
+    }
+    if (mode == "supabase") {
+        return "Supabase Cloud";
+    }
+    return "Laravel Lokal";
+}
+
 void buildConfigInjectHtml() {
-    const bool supabase = server_config::useRestApi();
-    const char *mode = supabase ? "supabase" : "laravel";
-    const char *modeLabel = supabase ? "Supabase Cloud" : "Laravel Lokal";
+    const String mode = server_config::apiMode();
+    const char *modeLabel = modeLabelFor(mode);
+    const bool supabase = mode == "supabase";
 
     const String url = server_config::serverUrl();
     const String key = server_config::apiKey();
@@ -90,7 +100,7 @@ setTimeout(wmFillServerFields,800);
         url.length() > 0 ? url.c_str() : "(belum diset)",
         code.length() > 0 ? code.c_str() : "(belum diset)",
         supabase && dash.length() > 0 ? dashLine.c_str() : "",
-        mode,
+        mode.c_str(),
         urlJs.c_str(),
         keyJs.c_str(),
         codeJs.c_str(),
@@ -104,6 +114,10 @@ const char PARAM_MODE_HTML[] PROGMEM = R"HTML(
 <label style='display:block;margin:4px 0'>
   <input type='radio' name='mode_pick' value='laravel' onclick='applyServerMode("laravel")'>
   <b>Laravel Lokal</b> — PostgreSQL via server kantor (http://IP:8008)
+</label>
+<label style='display:block;margin:4px 0'>
+  <input type='radio' name='mode_pick' value='rest' onclick='applyServerMode("rest")'>
+  <b>Server REST</b> — PostgreSQL + PostgREST di server Rocky (http://IP-server)
 </label>
 <label style='display:block;margin:4px 0'>
   <input type='radio' name='mode_pick' value='supabase' onclick='applyServerMode("supabase")'>
@@ -163,12 +177,19 @@ function applyServerMode(mode) {
   if (hidden) hidden.value = mode;
 
   var isLocal = (mode === 'laravel');
+  var isRest = (mode === 'rest');
   wmHideNamedField('api_key', isLocal);
-  wmHideNamedField('dashboard_url', isLocal);
+  wmHideNamedField('dashboard_url', isLocal || isRest);
 
-  wmSetInputLabel('server_url', isLocal
-    ? 'URL Laravel (contoh: http://192.168.100.100:8008)'
-    : 'URL Supabase (contoh: https://xxxx.supabase.co)');
+  if (isLocal) {
+    wmSetInputLabel('server_url', 'URL Laravel (contoh: http://192.168.100.100:8008)');
+  } else if (isRest) {
+    wmSetInputLabel('server_url', 'URL Server Rocky (contoh: http://49.128.184.182)');
+    wmSetInputLabel('api_key', 'API Key JWT PostgREST');
+  } else {
+    wmSetInputLabel('server_url', 'URL Supabase (contoh: https://xxxx.supabase.co)');
+    wmSetInputLabel('api_key', 'API Key Supabase (Publishable key)');
+  }
 
   var picks = document.querySelectorAll('input[name="mode_pick"]');
   for (var i = 0; i < picks.length; i++) {
@@ -232,8 +253,7 @@ void copyToParamBuffer(char *dest, size_t destSize, const String &value) {
 }
 
 void refreshServerParamValues() {
-    const bool supabase = server_config::useRestApi();
-    copyToParamBuffer(serverModeParam, sizeof(serverModeParam), supabase ? "supabase" : "laravel");
+    copyToParamBuffer(serverModeParam, sizeof(serverModeParam), server_config::apiMode());
     copyToParamBuffer(serverUrlParam, sizeof(serverUrlParam), server_config::serverUrl());
     copyToParamBuffer(apiKeyParam, sizeof(apiKeyParam), server_config::apiKey());
     copyToParamBuffer(deviceCodeParam, sizeof(deviceCodeParam), server_config::deviceCode());
@@ -263,9 +283,13 @@ void saveParamsCallback() {
         if (dashboard.length() == 0) {
             dashboard = url;
         }
+    } else if (mode == "rest") {
+        if (dashboard.length() == 0) {
+            dashboard = url;
+        }
     }
 
-    const bool changed = server_config::save(url, key, code, dashboard);
+    const bool changed = server_config::save(url, key, code, dashboard, mode);
     if (changed) {
         network_task::resetServerConnection();
     }

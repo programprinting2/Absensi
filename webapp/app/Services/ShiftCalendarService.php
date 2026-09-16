@@ -1254,7 +1254,7 @@ class ShiftCalendarService
 
         foreach ($templates as $template) {
             $anchorStart = $template->payload['anchor_start'] ?? null;
-            if (! $anchorStart || ! $this->dateInBlock($workDate, $anchorStart)) {
+            if (! $anchorStart || ! $this->dateOnRepeatingPattern($workDate, $anchorStart)) {
                 continue;
             }
 
@@ -1296,9 +1296,9 @@ class ShiftCalendarService
         $payload = $template->payload ?? [];
         $anchor = Carbon::parse($anchorStart, AppTimezone::display())->startOfDay();
         $date = Carbon::parse($workDate, AppTimezone::display())->startOfDay();
-        $offset = (int) $anchor->diffInDays($date);
-        $weekIndex = intdiv($offset, 7);
-        $dayIndex = $offset % 7;
+        $diffDays = (int) $anchor->diffInDays($date);
+        $weekIndex = intdiv($diffDays, 7) % 4;
+        $dayIndex = $date->dayOfWeekIso - 1;
 
         if (! isset($payload['weeks'][$weekIndex][$dayIndex])) {
             $payload = $this->buildTemplatePayloadFromBlock($anchorStart);
@@ -1375,7 +1375,7 @@ class ShiftCalendarService
             return;
         }
 
-        if (! $this->dateInBlock($workDate, $anchorStart)) {
+        if (! $this->dateOnRepeatingPattern($workDate, $anchorStart)) {
             return;
         }
 
@@ -1423,6 +1423,15 @@ class ShiftCalendarService
         $block = $this->fourWeekBlock($blockStart);
 
         return collect($block['weeks'])->flatten()->contains($date);
+    }
+
+    private function dateOnRepeatingPattern(string $date, string $anchorStart): bool
+    {
+        $tz = AppTimezone::display();
+        $anchor = Carbon::parse($anchorStart, $tz)->startOfDay();
+        $day = Carbon::parse($date, $tz)->startOfDay();
+
+        return $day->gte($anchor);
     }
 
     private function syncRepeatingPatternFromAnchorIfNeeded(string $weekStart): void

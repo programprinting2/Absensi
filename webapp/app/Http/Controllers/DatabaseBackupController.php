@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\DatabaseBackupService;
+use App\Services\DatabaseScheduledBackupService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -12,9 +13,12 @@ class DatabaseBackupController extends Controller
 {
     private $backupService;
 
-    public function __construct(DatabaseBackupService $backupService)
+    private DatabaseScheduledBackupService $scheduleService;
+
+    public function __construct(DatabaseBackupService $backupService, DatabaseScheduledBackupService $scheduleService)
     {
         $this->backupService = $backupService;
+        $this->scheduleService = $scheduleService;
     }
 
     // GET /tools/database/progress/{token}
@@ -263,6 +267,82 @@ class DatabaseBackupController extends Controller
         } catch (\Throwable $e) {
             return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
         }
+    }
+
+    // ── SCHEDULED BACKUP ────────────────────────────────────────────────
+    public function scheduleStatus()
+    {
+        return response()->json([
+            'success' => true,
+            'data' => $this->scheduleService->getStatus(),
+        ]);
+    }
+
+    public function scheduleSave(Request $request)
+    {
+        $payload = $request->validate([
+            'enabled' => 'nullable|boolean',
+            'frequency' => 'nullable|in:hourly,daily,weekly',
+            'time' => 'nullable|string|max:5',
+            'weekday' => 'nullable|integer|min:0|max:6',
+            'storage_type' => 'nullable|in:local,cloud',
+            'backup_scope' => 'nullable|in:full,structure',
+        ]);
+
+        $config = $this->scheduleService->saveConfig($payload);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Pengaturan scheduled backup disimpan.',
+            'data' => array_merge($this->scheduleService->getStatus(), ['config' => $config]),
+        ]);
+    }
+
+    public function scheduleApply(Request $request)
+    {
+        $payload = $request->validate([
+            'enabled' => 'required|boolean',
+            'frequency' => 'required|in:hourly,daily,weekly',
+            'time' => 'required|string|max:5',
+            'weekday' => 'nullable|integer|min:0|max:6',
+            'storage_type' => 'required|in:local,cloud',
+            'backup_scope' => 'required|in:full,structure',
+        ]);
+
+        $payload['enabled'] = (bool) $payload['enabled'];
+
+        if ($payload['enabled']) {
+            $result = $this->scheduleService->applySchedule($payload);
+        } else {
+            $result = $this->scheduleService->removeSchedule();
+        }
+
+        if (! ($result['success'] ?? false)) {
+            return response()->json([
+                'success' => false,
+                'error' => $result['error'] ?? 'Gagal mengatur scheduled backup.',
+                'data' => $this->scheduleService->getStatus(),
+                'details' => $result,
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $result['message'] ?? 'Scheduled backup berhasil dikonfigurasi.',
+            'data' => $this->scheduleService->getStatus(),
+            'details' => $result,
+        ]);
+    }
+
+    public function scheduleDisable()
+    {
+        $result = $this->scheduleService->removeSchedule();
+
+        return response()->json([
+            'success' => true,
+            'message' => $result['message'] ?? 'Scheduled backup dinonaktifkan.',
+            'data' => $this->scheduleService->getStatus(),
+        ]);
     }
 
     private function cleanupDir(string $dir): void

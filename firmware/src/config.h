@@ -13,7 +13,7 @@
 
 // Default server API — dipakai saat first boot (belum pernah setup portal).
 // Setelah setup lewat WiFiManager, nilai tersimpan di NVS dan bisa diganti
-// tanpa reflash (Supabase cloud atau PostgREST lokal).
+// tanpa reflash (Laravel lokal, Server REST Rocky, atau Supabase cloud).
 // Default mode lokal — Laravel (satu URL untuk data + heartbeat). Ganti lewat WiFi Manager tanpa reflash.
 #define SUPABASE_URL "http://192.168.100.249:8008"
 #define SUPABASE_ANON_KEY ""

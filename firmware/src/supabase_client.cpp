@@ -32,6 +32,13 @@ String restUrl(const String &path) {
     return server_config::serverUrl() + "/api/rest/v1/" + path;
 }
 
+String employeesResource() {
+    if (server_config::apiMode() == "rest") {
+        return "employees_device";
+    }
+    return "employees";
+}
+
 void logResult(const char *label, const String &url, int code) {
     Serial.print(F("[api] "));
     Serial.print(label);
@@ -119,7 +126,8 @@ bool fetchActiveEmployees(String &outJson) {
     WiFiClient plainClient;
     WiFiClientSecure secureClient;
     HTTPClient http;
-    String url = restUrl("employees?is_active=eq.true&select=id,employee_code,full_name,username,pin_salt,pin_hash");
+    String url = restUrl(employeesResource()
+                         + "?is_active=eq.true&select=id,employee_code,full_name,username,pin_salt,pin_hash");
     if (!beginHttp(http, plainClient, secureClient, url)) {
         return false;
     }

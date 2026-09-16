@@ -15,22 +15,7 @@ class DatabaseInfoController extends Controller
     {
         \App\Support\MenuRegistry::syncNewMenusToRoles();
 
-        // Connection info — support DB_URL (Supabase) atau DB_HOST klasik.
-        $dbUrl = env('DB_URL', '');
-        $region = env('SUPABASE_REGION', '-');
-        $supabaseUrl = env('SUPABASE_URL', '-');
-
-        preg_match('/@([^:\/]+)/', $dbUrl, $m);
-        $cfg = config('database.connections.'.config('database.default'), []);
-        $host = $m[1] ?? ($cfg['host'] ?? '-');
-
-        $connection = [
-            'driver'   => 'PostgreSQL',
-            'host'     => $host,
-            'region'   => $region,
-            'url'      => $supabaseUrl !== '-' ? $supabaseUrl : (string) config('app.url'),
-            'database' => (string) ($cfg['database'] ?? 'postgres'),
-        ];
+        $connection = $this->resolveActiveConnectionInfo();
 
         // Tables with row count
         $tables = DB::select("
@@ -80,8 +65,12 @@ class DatabaseInfoController extends Controller
             ? DB::select("SELECT * FROM migrations ORDER BY batch DESC, id DESC")
             : [];
 
+        $backupHistory = app(\App\Services\DatabaseBackupService::class)->listBackupHistory();
+        $backupCount = count($backupHistory);
+        $backupSchedule = app(\App\Services\DatabaseScheduledBackupService::class)->getStatus();
+
         return view('tools.database', compact(
-            'connection', 'tableData', 'totalSize', 'migrations'
+            'connection', 'tableData', 'totalSize', 'migrations', 'backupHistory', 'backupCount', 'backupSchedule'
         ));
     }
 
@@ -113,9 +102,8 @@ class DatabaseInfoController extends Controller
         $cleared = [];
 
         try {
+            $this->tryEnableReplicationRole();
             DB::beginTransaction();
-            // Nonaktifkan trigger FK agar DELETE bisa mengosongkan tabel walau direferensikan tabel lain.
-            DB::statement('SET session_replication_role = replica;');
 
             foreach ($selected as $table) {
                 $quoted = '"' . str_replace('"', '""', $table) . '"';
@@ -130,15 +118,11 @@ class DatabaseInfoController extends Controller
                 $cleared[] = $table;
             }
 
-            DB::statement('SET session_replication_role = DEFAULT;');
             DB::commit();
+            $this->tryDisableReplicationRole();
         } catch (\Throwable $e) {
             DB::rollBack();
-            try {
-                DB::statement('SET session_replication_role = DEFAULT;');
-            } catch (\Throwable $ignore) {
-                // abaikan
-            }
+            $this->tryDisableReplicationRole();
 
             return response()->json([
                 'success' => false,
@@ -189,6 +173,7 @@ class DatabaseInfoController extends Controller
             $tableCount = (int) ($tableRow->aggregate ?? 0);
             $sizeBytes = (int) ($sizeRow->size_bytes ?? 0);
             $totalRecords = (int) ($recordRow->total_records ?? 0);
+            $tableList = $this->fetchTableList($conn, $driver, $payload['database']);
 
             return response()->json([
                 'connected' => true,
@@ -198,6 +183,7 @@ class DatabaseInfoController extends Controller
                 'total_records' => $totalRecords,
                 'size_bytes' => $sizeBytes,
                 'size_human' => $this->formatBytes($sizeBytes),
+                'table_list' => $tableList,
             ]);
         } catch (\Throwable $e) {
             return response()->json([
@@ -239,10 +225,10 @@ class DatabaseInfoController extends Controller
 
     public function loadSourceConfig()
     {
-        // Load Source Server diisi dari koneksi database yang AKTIF saat ini
-        // (DB_* / DB_URL di .env), bukan dari nilai MIGRATION_SOURCE_DB_* lama.
+        // Source Server Fetch membaca koneksi database aktif dari .env (DB_* / DB_URL).
         return response()->json([
             'success' => true,
+            'source_label' => 'DB_CONNECTION, DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD',
             'config' => $this->activeConnectionConfig(),
         ]);
     }
@@ -289,9 +275,7 @@ class DatabaseInfoController extends Controller
             'port' => $port,
             'database' => $database,
             'username' => $username,
-            // Jangan kirim password plaintext ke browser; admin isi ulang jika perlu.
-            'password' => '',
-            'password_set' => $password !== '',
+            'password' => $password,
         ];
     }
 
@@ -395,8 +379,8 @@ class DatabaseInfoController extends Controller
 
             $conn->statement('DROP SCHEMA public CASCADE;');
             $conn->statement('CREATE SCHEMA public;');
-            $this->grantPublicSchemaPrivileges($conn);
-            $this->prepareDestinationExtensions($conn);
+            $conn->statement('GRANT ALL ON SCHEMA public TO postgres;');
+            $conn->statement('GRANT ALL ON SCHEMA public TO anon, authenticated, service_role;');
 
             return response()->json([
                 'success' => true,
@@ -411,111 +395,6 @@ class DatabaseInfoController extends Controller
             DB::disconnect($connectionName);
             DB::purge($connectionName);
             Config::set("database.connections.{$connectionName}", null);
-        }
-    }
-
-    /**
-     * Grant schema public hanya ke role yang benar-benar ada di server tujuan.
-     */
-    private function grantPublicSchemaPrivileges($conn): void
-    {
-        $candidates = ['postgres', 'PUBLIC', 'anon', 'authenticated', 'service_role'];
-
-        foreach ($candidates as $role) {
-            if ($role !== 'PUBLIC') {
-                $exists = $conn->selectOne(
-                    'SELECT 1 AS ok FROM pg_roles WHERE rolname = ? LIMIT 1',
-                    [$role]
-                );
-                if (! $exists) {
-                    continue;
-                }
-            }
-
-            $quoted = $role === 'PUBLIC' ? 'PUBLIC' : '"'.str_replace('"', '""', $role).'"';
-            $conn->statement("GRANT ALL ON SCHEMA public TO {$quoted}");
-        }
-
-        try {
-            $conn->statement('GRANT ALL ON SCHEMA public TO CURRENT_USER');
-        } catch (\Throwable) {
-            // ignore
-        }
-    }
-
-    /**
-     * Schema extensions + pgcrypto (kompatibel dump Supabase).
-     */
-    private function prepareDestinationExtensions($conn): void
-    {
-        $conn->statement('CREATE SCHEMA IF NOT EXISTS extensions');
-
-        $pgcryptoInExtensions = $conn->selectOne("
-            SELECT 1 AS ok
-            FROM pg_extension e
-            JOIN pg_namespace n ON n.oid = e.extnamespace
-            WHERE e.extname = 'pgcrypto' AND n.nspname = 'extensions'
-            LIMIT 1
-        ");
-
-        if (! $pgcryptoInExtensions) {
-            $pgcryptoAnywhere = $conn->selectOne("
-                SELECT 1 AS ok FROM pg_extension WHERE extname = 'pgcrypto' LIMIT 1
-            ");
-
-            if (! $pgcryptoAnywhere) {
-                try {
-                    $conn->statement('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions');
-                } catch (\Throwable) {
-                    $conn->statement('CREATE EXTENSION IF NOT EXISTS pgcrypto');
-                }
-            }
-        }
-
-        $conn->statement(<<<'SQL'
-DO $compat$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_proc p
-        JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'extensions' AND p.proname = 'gen_random_bytes'
-    ) AND EXISTS (
-        SELECT 1
-        FROM pg_proc p
-        JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'public' AND p.proname = 'gen_random_bytes'
-    ) THEN
-        EXECUTE 'CREATE OR REPLACE FUNCTION extensions.gen_random_bytes(integer)
-                 RETURNS bytea
-                 LANGUAGE sql
-                 AS $f$ SELECT public.gen_random_bytes($1) $f$';
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_proc p
-        JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'extensions' AND p.proname = 'gen_random_uuid'
-    ) AND EXISTS (
-        SELECT 1
-        FROM pg_proc p
-        JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname IN ('public', 'pg_catalog') AND p.proname = 'gen_random_uuid'
-    ) THEN
-        EXECUTE 'CREATE OR REPLACE FUNCTION extensions.gen_random_uuid()
-                 RETURNS uuid
-                 LANGUAGE sql
-                 AS $f$ SELECT gen_random_uuid() $f$';
-    END IF;
-END
-$compat$;
-SQL);
-
-        try {
-            $conn->statement('GRANT USAGE ON SCHEMA extensions TO PUBLIC');
-        } catch (\Throwable) {
-            // ignore
         }
     }
 
@@ -547,18 +426,16 @@ SQL);
 
     public function loadDestinationConfig()
     {
-        $password = $this->readEnvValue('MIGRATION_DESTINATION_DB_PASSWORD', '');
-
         return response()->json([
             'success' => true,
+            'source_label' => 'MIGRATION_DESTINATION_DB_*',
             'config' => [
-                'driver' => $this->readEnvValue('MIGRATION_DESTINATION_DB_DRIVER', 'mysql'),
+                'driver' => $this->readEnvValue('MIGRATION_DESTINATION_DB_DRIVER', 'pgsql'),
                 'host' => $this->readEnvValue('MIGRATION_DESTINATION_DB_HOST', ''),
                 'port' => $this->readEnvValue('MIGRATION_DESTINATION_DB_PORT', ''),
                 'database' => $this->readEnvValue('MIGRATION_DESTINATION_DB_DATABASE', ''),
                 'username' => $this->readEnvValue('MIGRATION_DESTINATION_DB_USERNAME', ''),
-                'password' => '',
-                'password_set' => $password !== '',
+                'password' => $this->readEnvValue('MIGRATION_DESTINATION_DB_PASSWORD', ''),
             ],
         ]);
     }
@@ -651,6 +528,8 @@ SQL);
         // Lepas lock session agar request polling progress tetap bisa jalan paralel.
         session()->save();
 
+        @set_time_limit(0);
+
         try {
             app(\App\Services\DatabaseMigrationService::class)->runMigration(
                 $token,
@@ -665,9 +544,11 @@ SQL);
                 'token' => $token,
             ]);
         } catch (\Throwable $e) {
+            $message = mb_convert_encoding($e->getMessage(), 'UTF-8', 'UTF-8');
+
             return response()->json([
                 'success' => false,
-                'error' => $e->getMessage(),
+                'error' => $message !== '' ? $message : 'Migration gagal.',
             ], 500);
         }
     }
@@ -771,10 +652,6 @@ SQL);
             $this->updateEnvValues([
                 'SWITCH_BACKUP_DB_CONNECTION' => $this->readEnvValue('DB_CONNECTION', 'pgsql'),
                 'SWITCH_BACKUP_DB_URL' => $this->readEnvValue('DB_URL', ''),
-                'SWITCH_BACKUP_DB_HOST' => $this->readEnvValue('DB_HOST', ''),
-                'SWITCH_BACKUP_DB_PORT' => $this->readEnvValue('DB_PORT', ''),
-                'SWITCH_BACKUP_DB_DATABASE' => $this->readEnvValue('DB_DATABASE', ''),
-                'SWITCH_BACKUP_DB_USERNAME' => $this->readEnvValue('DB_USERNAME', ''),
                 'SWITCH_BACKUP_DB_PASSWORD' => $this->readEnvValue('DB_PASSWORD', ''),
                 'SWITCH_BACKUP_SUPABASE_URL' => $this->readEnvValue('SUPABASE_URL', ''),
                 'SWITCH_BACKUP_SUPABASE_ENDPOINT' => $this->readEnvValue('SUPABASE_ENDPOINT', ''),
@@ -784,10 +661,6 @@ SQL);
                 'SWITCH_BACKUP_AT' => $switchedAt,
                 'DB_CONNECTION' => 'pgsql',
                 'DB_URL' => $destinationDbUrl,
-                'DB_HOST' => $destinationHost,
-                'DB_PORT' => (string) $destinationPort,
-                'DB_DATABASE' => $destinationDatabase,
-                'DB_USERNAME' => $destinationUsername,
                 'DB_PASSWORD' => $destinationPassword,
                 'ACTIVE_DB_TARGET' => 'destination',
                 'ACTIVE_DB_SWITCHED_AT' => $switchedAt,
@@ -872,10 +745,6 @@ SQL);
             $this->updateEnvValues([
                 'DB_CONNECTION' => $this->readEnvValue('SWITCH_BACKUP_DB_CONNECTION', 'pgsql'),
                 'DB_URL' => $backupDbUrl,
-                'DB_HOST' => $this->readEnvValue('SWITCH_BACKUP_DB_HOST', ''),
-                'DB_PORT' => $this->readEnvValue('SWITCH_BACKUP_DB_PORT', ''),
-                'DB_DATABASE' => $this->readEnvValue('SWITCH_BACKUP_DB_DATABASE', ''),
-                'DB_USERNAME' => $this->readEnvValue('SWITCH_BACKUP_DB_USERNAME', ''),
                 'DB_PASSWORD' => $this->readEnvValue('SWITCH_BACKUP_DB_PASSWORD', ''),
                 'SUPABASE_URL' => $this->readEnvValue('SWITCH_BACKUP_SUPABASE_URL', ''),
                 'SUPABASE_ENDPOINT' => $this->readEnvValue('SWITCH_BACKUP_SUPABASE_ENDPOINT', ''),
@@ -971,7 +840,7 @@ SQL);
     private function updateEnvValues(array $entries): void
     {
         $envPath = base_path('.env');
-        if (! is_file($envPath)) {
+        if (!is_file($envPath)) {
             throw new \RuntimeException('.env file tidak ditemukan.');
         }
 
@@ -982,15 +851,12 @@ SQL);
 
         foreach ($entries as $key => $value) {
             $escapedKey = preg_quote($key, '/');
-            $line = $key.'='.$this->formatEnvValue((string) $value);
+            $line = $key . '=' . $this->formatEnvValue((string) $value);
 
-            // Update baris aktif, atau uncomment baris yang dikomentari.
-            if (preg_match('/^'.$escapedKey.'=.*$/m', $content)) {
-                $content = preg_replace('/^'.$escapedKey.'=.*$/m', $line, $content, 1);
-            } elseif (preg_match('/^#\s*'.$escapedKey.'=.*$/m', $content)) {
-                $content = preg_replace('/^#\s*'.$escapedKey.'=.*$/m', $line, $content, 1);
+            if (preg_match('/^' . $escapedKey . '=.*$/m', $content)) {
+                $content = preg_replace('/^' . $escapedKey . '=.*$/m', $line, $content);
             } else {
-                $content = rtrim($content, "\r\n").PHP_EOL.$line.PHP_EOL;
+                $content = rtrim($content, "\r\n") . PHP_EOL . $line . PHP_EOL;
             }
         }
 
@@ -1006,7 +872,7 @@ SQL);
         }
 
         if (preg_match('/[\s#"\'=]/', $value)) {
-            return '"'.addcslashes($value, '"').'"';
+            return '"' . addcslashes($value, '"') . '"';
         }
 
         return $value;
@@ -1015,7 +881,7 @@ SQL);
     private function readEnvValue(string $key, string $default = ''): string
     {
         $envPath = base_path('.env');
-        if (! is_file($envPath)) {
+        if (!is_file($envPath)) {
             return $default;
         }
 
@@ -1025,8 +891,7 @@ SQL);
         }
 
         $escapedKey = preg_quote($key, '/');
-        // Hanya baca nilai aktif (bukan yang dikomentari).
-        if (! preg_match('/^'.$escapedKey.'=(.*)$/m', $content, $matches)) {
+        if (!preg_match('/^' . $escapedKey . '=(.*)$/m', $content, $matches)) {
             return $default;
         }
 
@@ -1046,6 +911,51 @@ SQL);
         return $raw;
     }
 
+    private function fetchTableList($conn, string $driver, ?string $database = null): array
+    {
+        if ($driver === 'pgsql') {
+            $rows = $conn->select("
+                SELECT t.table_name, COALESCE(s.n_live_tup, 0) AS row_count
+                FROM information_schema.tables t
+                LEFT JOIN pg_stat_user_tables s ON s.relname = t.table_name
+                WHERE t.table_schema = 'public' AND t.table_type = 'BASE TABLE'
+                ORDER BY t.table_name
+            ");
+        } else {
+            $rows = $conn->select("
+                SELECT table_name, COALESCE(table_rows, 0) AS row_count
+                FROM information_schema.tables
+                WHERE table_schema = ? AND table_type = 'BASE TABLE'
+                ORDER BY table_name
+            ", [$database]);
+        }
+
+        return collect($rows)->map(fn ($row) => [
+            'name' => $row->table_name,
+            'row_count' => (int) $row->row_count,
+        ])->values()->all();
+    }
+
+    private function tryEnableReplicationRole(): void
+    {
+        try {
+            DB::statement('SET session_replication_role = replica;');
+        } catch (\Throwable $e) {
+            if (!str_contains($e->getMessage(), 'session_replication_role') && !str_contains($e->getMessage(), '42501')) {
+                throw $e;
+            }
+        }
+    }
+
+    private function tryDisableReplicationRole(): void
+    {
+        try {
+            DB::statement('SET session_replication_role = DEFAULT;');
+        } catch (\Throwable $e) {
+            // Abaikan jika enable sebelumnya gagal.
+        }
+    }
+
     private function formatBytes(int $bytes): string
     {
         if ($bytes < 1024) {
@@ -1061,5 +971,66 @@ SQL);
         }
 
         return number_format($bytes / (1024 * 1024 * 1024), 2) . ' GB';
+    }
+
+    private function resolveActiveConnectionInfo(): array
+    {
+        $connectionName = (string) config('database.default', 'pgsql');
+        $dbConfig = config("database.connections.{$connectionName}", []);
+
+        $driver = strtolower((string) ($dbConfig['driver'] ?? 'pgsql'));
+        $driverLabel = match ($driver) {
+            'pgsql' => 'PostgreSQL',
+            'mysql' => 'MySQL',
+            'sqlite' => 'SQLite',
+            'sqlsrv' => 'SQL Server',
+            default => strtoupper($driver),
+        };
+
+        $host = (string) ($dbConfig['host'] ?? '');
+        $port = (string) ($dbConfig['port'] ?? '');
+        $database = (string) ($dbConfig['database'] ?? '');
+        $username = (string) ($dbConfig['username'] ?? '');
+        $dbUrl = (string) ($dbConfig['url'] ?? config('database.connections.pgsql.url', ''));
+
+        if ($dbUrl !== '') {
+            $parsed = parse_url($dbUrl);
+            if (!empty($parsed['host'])) {
+                $host = $parsed['host'];
+            }
+            if (!empty($parsed['port'])) {
+                $port = (string) $parsed['port'];
+            }
+            if (!empty($parsed['path'])) {
+                $database = ltrim($parsed['path'], '/');
+            }
+            if (!empty($parsed['user'])) {
+                $username = $parsed['user'];
+            }
+        }
+
+        $hostDisplay = $host !== '' ? $host . ($port !== '' ? ':' . $port : '') : '-';
+
+        $region = (string) env('SUPABASE_REGION', '');
+        if ($region === '' && preg_match('/aws-\d+-([^.]+)\.pooler\.supabase\.com/', $host, $m)) {
+            $region = $m[1];
+        }
+        if ($region === '') {
+            $region = '-';
+        }
+
+        $supabaseUrl = (string) env('SUPABASE_URL', '');
+        if ($supabaseUrl === '') {
+            $supabaseUrl = '-';
+        }
+
+        return [
+            'driver'   => $driverLabel,
+            'host'     => $hostDisplay,
+            'region'   => $region,
+            'url'      => $supabaseUrl,
+            'database' => $database !== '' ? $database : '-',
+            'username' => $username !== '' ? $username : '-',
+        ];
     }
 }

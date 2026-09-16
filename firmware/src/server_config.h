@@ -13,14 +13,18 @@ String dashboardUrl();
 bool useTls();
 bool dashboardUseTls();
 
-// true = Supabase cloud (/rest/v1/ + API key). false = Laravel lokal (satu URL, key kosong).
+// "laravel" | "supabase" | "rest" (PostgREST di server Rocky sendiri)
+String apiMode();
+
+// true = Supabase cloud atau Server REST (/rest/v1/ + API key JWT).
 bool useRestApi();
 
-// URL dasar heartbeat — sama dengan Server URL saat mode Laravel lokal.
+// URL dasar heartbeat/evaluate — Laravel lokal & Server REST pakai serverUrl; Supabase pakai dashboardUrl.
 String heartbeatBaseUrl();
 
 bool hasStoredConfig();
 
-bool save(const String &url, const String &key, const String &code, const String &dashboardUrl);
+bool save(const String &url, const String &key, const String &code, const String &dashboardUrl,
+          const String &mode);
 
 } // namespace server_config

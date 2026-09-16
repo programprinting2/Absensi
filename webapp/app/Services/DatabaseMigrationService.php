@@ -60,6 +60,10 @@ class DatabaseMigrationService
 
     public function runMigration(string $token, string $userName, array $sourceConfig, array $destinationConfig, string $mode = 'full'): void
     {
+        // Migrasi besar bisa >30 detik — naikkan limit agar tidak terpotong di tengah proses.
+        @set_time_limit(0);
+        @ini_set('max_execution_time', '0');
+
         $startedAt = now();
         $startedTs = microtime(true);
         $modeLabel = $mode === 'structure' ? 'DB Structure Only' : 'Full Migration (Structure + data)';
@@ -121,8 +125,9 @@ class DatabaseMigrationService
             ]);
 
             $this->resetDestinationSchema($destination);
-            $source->statement('SET session_replication_role = replica;');
-            $destination->statement('SET session_replication_role = replica;');
+            $this->ensureDestinationExtensions($destination);
+            $this->enableReplicationRole($source);
+            $this->enableReplicationRole($destination);
 
             try {
                 if (!is_dir($tempDir)) {
@@ -132,11 +137,11 @@ class DatabaseMigrationService
                 $this->writeStandardMigrationDump($source, $tableNames, $sqlFile, $token, $userName, $mode, $startedAt, $startedTs, $sourceLabel, $destinationLabel, $totalTables);
                 $this->executeStandardMigrationDump($destination, $sqlFile, $token, $userName, $mode, $startedAt, $startedTs, $sourceLabel, $destinationLabel, $totalTables);
 
-                $destination->statement('SET session_replication_role = DEFAULT;');
-                $source->statement('SET session_replication_role = DEFAULT;');
+                $this->disableReplicationRole($destination);
+                $this->disableReplicationRole($source);
             } catch (\Throwable $e) {
-                $destination->statement('SET session_replication_role = DEFAULT;');
-                $source->statement('SET session_replication_role = DEFAULT;');
+                $this->disableReplicationRole($destination);
+                $this->disableReplicationRole($source);
                 throw $e;
             }
 
@@ -199,25 +204,6 @@ class DatabaseMigrationService
 
     private function buildConnectionConfig(array $payload): array
     {
-        $driver = ($payload['driver'] ?? 'pgsql') === 'mysql' ? 'mysql' : 'pgsql';
-
-        if ($driver === 'mysql') {
-            return [
-                'driver' => 'mysql',
-                'host' => $payload['host'],
-                'port' => $payload['port'] ?? 3306,
-                'database' => $payload['database'],
-                'username' => $payload['username'],
-                'password' => $payload['password'] ?? '',
-                'charset' => 'utf8mb4',
-                'collation' => 'utf8mb4_unicode_ci',
-                'prefix' => '',
-                'strict' => false,
-                'engine' => null,
-            ];
-        }
-
-        // PostgreSQL menolak client_encoding utf8mb4 (itu MySQL) → pakai utf8.
         return [
             'driver' => 'pgsql',
             'host' => $payload['host'],
@@ -230,9 +216,9 @@ class DatabaseMigrationService
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => 'prefer',
-            'options' => extension_loaded('pdo_pgsql') ? [
+            'options' => extension_loaded('pdo_pgsql') ? array_filter([
                 \PDO::ATTR_EMULATE_PREPARES => true,
-            ] : [],
+            ]) : [],
         ];
     }
 
@@ -259,118 +245,25 @@ class DatabaseMigrationService
 
     private function resetDestinationSchema(Connection $destination): void
     {
-        $destination->statement('DROP SCHEMA public CASCADE;');
-        $destination->statement('CREATE SCHEMA public;');
-        $this->grantPublicSchemaPrivileges($destination);
-        $this->prepareDestinationExtensions($destination);
-    }
-
-    /**
-     * Siapkan schema extensions + pgcrypto agar dump Supabase
-     * (extensions.gen_random_bytes / gen_random_uuid) jalan di Postgres lokal.
-     */
-    private function prepareDestinationExtensions(Connection $destination): void
-    {
-        $destination->statement('CREATE SCHEMA IF NOT EXISTS extensions');
-
-        $pgcryptoInExtensions = $destination->selectOne("
-            SELECT 1 AS ok
-            FROM pg_extension e
-            JOIN pg_namespace n ON n.oid = e.extnamespace
-            WHERE e.extname = 'pgcrypto' AND n.nspname = 'extensions'
-            LIMIT 1
+        $tables = $destination->select("
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
         ");
 
-        if (! $pgcryptoInExtensions) {
-            $pgcryptoAnywhere = $destination->selectOne("
-                SELECT 1 AS ok FROM pg_extension WHERE extname = 'pgcrypto' LIMIT 1
-            ");
-
-            if (! $pgcryptoAnywhere) {
-                try {
-                    $destination->statement('CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions');
-                } catch (\Throwable) {
-                    $destination->statement('CREATE EXTENSION IF NOT EXISTS pgcrypto');
-                }
-            }
+        if ($tables === []) {
+            return;
         }
 
-        // Wrapper kompatibilitas jika fungsi hanya ada di public/pg_catalog.
-        $destination->statement(<<<'SQL'
-DO $compat$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_proc p
-        JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'extensions' AND p.proname = 'gen_random_bytes'
-    ) AND EXISTS (
-        SELECT 1
-        FROM pg_proc p
-        JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'public' AND p.proname = 'gen_random_bytes'
-    ) THEN
-        EXECUTE 'CREATE OR REPLACE FUNCTION extensions.gen_random_bytes(integer)
-                 RETURNS bytea
-                 LANGUAGE sql
-                 AS $f$ SELECT public.gen_random_bytes($1) $f$';
-    END IF;
-
-    IF NOT EXISTS (
-        SELECT 1
-        FROM pg_proc p
-        JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname = 'extensions' AND p.proname = 'gen_random_uuid'
-    ) AND EXISTS (
-        SELECT 1
-        FROM pg_proc p
-        JOIN pg_namespace n ON n.oid = p.pronamespace
-        WHERE n.nspname IN ('public', 'pg_catalog') AND p.proname = 'gen_random_uuid'
-    ) THEN
-        EXECUTE 'CREATE OR REPLACE FUNCTION extensions.gen_random_uuid()
-                 RETURNS uuid
-                 LANGUAGE sql
-                 AS $f$ SELECT gen_random_uuid() $f$';
-    END IF;
-END
-$compat$;
-SQL);
-
-        try {
-            $destination->statement('GRANT USAGE ON SCHEMA extensions TO PUBLIC');
-        } catch (\Throwable) {
-            // ignore
-        }
-    }
-
-    /**
-     * Grant schema public ke role yang ada saja.
-     * Role Supabase (anon/authenticated/service_role) tidak selalu ada di Postgres lokal.
-     */
-    private function grantPublicSchemaPrivileges(Connection $connection): void
-    {
-        $candidates = ['postgres', 'PUBLIC', 'anon', 'authenticated', 'service_role'];
-
-        foreach ($candidates as $role) {
-            if ($role !== 'PUBLIC') {
-                $exists = $connection->selectOne(
-                    'SELECT 1 AS ok FROM pg_roles WHERE rolname = ? LIMIT 1',
-                    [$role]
-                );
-                if (! $exists) {
-                    continue;
-                }
+        // Hapus tabel satu per satu — tidak perlu DROP SCHEMA (butuh owner schema).
+        foreach ($tables as $table) {
+            $name = (string) ($table->table_name ?? '');
+            if ($name === '') {
+                continue;
             }
 
-            $quoted = $role === 'PUBLIC' ? 'PUBLIC' : '"'.str_replace('"', '""', $role).'"';
-            $connection->statement("GRANT ALL ON SCHEMA public TO {$quoted}");
-        }
-
-        // Pastikan owner koneksi saat ini juga punya akses.
-        try {
-            $connection->statement('GRANT ALL ON SCHEMA public TO CURRENT_USER');
-        } catch (\Throwable) {
-            // ignore
+            $quoted = '"' . str_replace('"', '""', $name) . '"';
+            $destination->statement("DROP TABLE IF EXISTS public.{$quoted} CASCADE;");
         }
     }
 
@@ -402,6 +295,7 @@ SQL);
         fwrite($handle, "-- PostgreSQL Migration Dump\n");
         fwrite($handle, "-- Generated : {$timestamp}\n");
         fwrite($handle, "-- App : " . config('app.name') . "\n\n");
+        fwrite($handle, "CREATE EXTENSION IF NOT EXISTS pg_trgm;\n");
         fwrite($handle, "SET session_replication_role = replica;\nBEGIN;\n\n");
 
         $sequenceDefs = $this->collectSequenceDefinitions($source);
@@ -504,7 +398,8 @@ SQL);
             'duration_label' => $this->formatDuration(microtime(true) - $startedTs),
         ]);
 
-        $destination->statement('SET session_replication_role = replica;');
+        $this->ensureDestinationExtensions($destination);
+        $this->enableReplicationRole($destination);
         $destination->beginTransaction();
 
         try {
@@ -527,6 +422,10 @@ SQL);
                     continue;
                 }
                 if (str_starts_with($upper, 'SET SESSION_REPLICATION_ROLE')) {
+                    continue;
+                }
+                if (str_starts_with($upper, 'CREATE EXTENSION')) {
+                    // Extension sudah dipastikan di luar transaksi — jangan eksekusi di dalam BEGIN.
                     continue;
                 }
 
@@ -572,7 +471,47 @@ SQL);
             $destination->rollBack();
             throw $e;
         } finally {
-            $destination->statement('SET session_replication_role = DEFAULT;');
+            $this->disableReplicationRole($destination);
+        }
+    }
+
+    /**
+     * Nonaktifkan trigger/FK sementara saat bulk import.
+     * Butuh superuser — diabaikan jika user destination tidak punya hak (mis. super_admin).
+     */
+    private function enableReplicationRole(Connection $connection): void
+    {
+        try {
+            $connection->statement('SET session_replication_role = replica;');
+        } catch (\Throwable $e) {
+            // User non-superuser pada PostgreSQL self-hosted tidak bisa set parameter ini.
+        }
+    }
+
+    private function disableReplicationRole(Connection $connection): void
+    {
+        try {
+            $connection->statement('SET session_replication_role = DEFAULT;');
+        } catch (\Throwable $e) {
+            // Abaikan jika enable sebelumnya juga gagal.
+        }
+    }
+
+    private function ensureDestinationExtensions(Connection $destination): void
+    {
+        $installed = $destination->selectOne("SELECT 1 AS ok FROM pg_extension WHERE extname = 'pg_trgm' LIMIT 1");
+        if ($installed !== null) {
+            return;
+        }
+
+        try {
+            $destination->statement('CREATE EXTENSION IF NOT EXISTS pg_trgm;');
+        } catch (\Throwable $e) {
+            throw new \RuntimeException(
+                'Extension pg_trgm belum tersedia di server destination. Di server jalankan: dnf install postgresql-contrib -y && sudo -u postgres psql -d programprinting -c "CREATE EXTENSION pg_trgm;"',
+                0,
+                $e
+            );
         }
     }
 
