@@ -87,13 +87,29 @@ class AttendanceReportService
         // $schedule tetap diterima untuk kompatibilitas pemanggil lama;
         // perhitungan memakai ShiftResolver per karyawan per tanggal.
         unset($schedule);
+        $resolver = app(ShiftResolver::class);
+        $employeeIds = collect($employees?->pluck('id'))
+            ->merge($logs->pluck('employee_id'))
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($employeeIds->isNotEmpty()) {
+            if ($rangeStart && $rangeEnd) {
+                $resolver->prefetchForEmployeesAndRange($employeeIds, $rangeStart, $rangeEnd);
+            } elseif ($logs->isNotEmpty()) {
+                $dates = $logs->map(fn (AttendanceLog $log) => $this->toLocal($log->event_time)->toDateString());
+                $resolver->prefetchForEmployeesAndRange($employeeIds, $dates->min(), $dates->max());
+            }
+        }
+
         $rows = $logs
             ->groupBy(fn (AttendanceLog $log) => $log->employee_id.'|'.$this->toLocal($log->event_time)->toDateString())
-            ->map(function (Collection $group) {
+            ->map(function (Collection $group) use ($resolver) {
                 $first = $group->first();
                 $firstLocal = $this->toLocal($first->event_time);
                 $date = $firstLocal->toDateString();
-                $schedule = app(ShiftResolver::class)->forEmployeeOnDate($first->employee_id, $date);
+                $schedule = $resolver->forEmployeeOnDate($first->employee_id, $date);
 
                 $row = $this->buildAttendanceRow($group, $schedule, $date);
                 $row['employee'] = $first->employee;
@@ -258,6 +274,7 @@ class AttendanceReportService
         $logsByEmployee = $dayLogs->groupBy('employee_id');
         $date = $date ?? AppTimezone::nowDisplay()->toDateString();
         $resolver = app(ShiftResolver::class);
+        $resolver->prefetchForEmployeesAndRange($employees->pluck('id'), $date, $date);
         $leaveMap = app(LeaveService::class)->approvedLeavesByEmployeeDate(
             $employees->pluck('id'),
             $date,

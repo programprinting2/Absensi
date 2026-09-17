@@ -53,6 +53,10 @@ SSL_GENERATE_SCRIPT = os.path.join(
 ABSENSI_ONLINE_DIR = r"D:\Project\ABSENSI ONLINE\webapp"
 ABSENSI_ONLINE_PORT = 8008
 
+# LED Matrix (Node.js web server)
+LED_MATRIX_DIR = r"D:\WEB APPS\LED MATRIX\server"
+LED_MATRIX_PORT = 3000
+
 
 def kill_existing(name):
     """Matikan proses lama (yang ditrack session ini) jika masih berjalan"""
@@ -144,6 +148,10 @@ def _get_service_type(proc_info):
         or f":{ABSENSI_ONLINE_PORT}" in cmdline
     ):
         return "absensi_online"
+
+    if "led matrix" in text:
+        if "npm start" in cmdline or "server.js" in cmdline:
+            return "led_matrix"
 
     return None
 
@@ -324,6 +332,24 @@ def run_absensi_online():
     print(f"[INFO] Absensi Online -> http://localhost:{ABSENSI_ONLINE_PORT}", flush=True)
 
 
+def run_led_matrix():
+    """LED Matrix — Node.js web server (port 3000)"""
+    if not os.path.isdir(LED_MATRIX_DIR):
+        print(f"[ERROR] Folder LED Matrix tidak ditemukan: {LED_MATRIX_DIR}", flush=True)
+        return
+
+    killed_ports = kill_port_listeners({LED_MATRIX_PORT})
+    for pid, port in killed_ports:
+        print(f"[STOP] Port {port} PID {pid} dibebaskan", flush=True)
+
+    start_process(
+        "LED Matrix Server",
+        ["npm", "start"],
+        LED_MATRIX_DIR,
+    )
+    print(f"[INFO] LED Matrix -> http://localhost:{LED_MATRIX_PORT}", flush=True)
+
+
 SERVICES = {
     "1": {
         "label": "Laravel ProgramPrinting",
@@ -366,6 +392,12 @@ SERVICES = {
         "run": None,
         "tracked_names": ["Absensi Online Dev"],
     },
+    "7": {
+        "label": "LED Matrix",
+        "type": "led_matrix",
+        "run": None,
+        "tracked_names": ["LED Matrix Server"],
+    },
 }
 
 SERVICES["1"]["run"] = run_laravel_programprinting
@@ -374,8 +406,9 @@ SERVICES["3"]["run"] = run_npm_dev_playstationbilling
 SERVICES["4"]["run"] = run_node_backend_playstationbilling
 SERVICES["5"]["run"] = run_python_agent
 SERVICES["6"]["run"] = run_absensi_online
+SERVICES["7"]["run"] = run_led_matrix
 
-ALL_KEY = "7"
+ALL_KEY = "8"
 
 
 def stop_service(service_key):
@@ -395,6 +428,9 @@ def stop_service(service_key):
 
     if svc["type"] == "absensi_online":
         kill_port_listeners({ABSENSI_ONLINE_PORT, 5173})
+
+    if svc["type"] == "led_matrix":
+        kill_port_listeners({LED_MATRIX_PORT})
 
     killed = find_and_kill_orphan_services(svc["type"])
     for pid, cmd in killed:
@@ -429,6 +465,7 @@ def restart_all():
     threading.Thread(target=run_laravel_programprinting, daemon=True).start()
     threading.Thread(target=run_python_agent, daemon=True).start()
     threading.Thread(target=run_absensi_online, daemon=True).start()
+    threading.Thread(target=run_led_matrix, daemon=True).start()
 
 
 def stop_all():
@@ -446,7 +483,7 @@ def stop_all_system():
     orphan di sistem. Aplikasi seperti Cursor tidak disentuh.
     """
     stop_all()
-    kill_port_listeners({ABSENSI_ONLINE_PORT, 5173})
+    kill_port_listeners({ABSENSI_ONLINE_PORT, 5173, LED_MATRIX_PORT})
     print("[STOP] Mencari dev-service orphan di sistem...", flush=True)
     killed = find_and_kill_orphan_services()
     if killed:
@@ -539,8 +576,9 @@ def show_restart_menu():
     print("4. Backend PlaystationBilling")
     print("5. Python Agent")
     print("6. Absensi Online")
-    print("7. All")
-    return input_with_timeout(timeout=30, default=ALL_KEY, options_hint="1-7")
+    print("7. LED Matrix")
+    print("8. All")
+    return input_with_timeout(timeout=30, default=ALL_KEY, options_hint="1-8")
 
 
 def show_startup_menu():
@@ -582,6 +620,7 @@ if __name__ == "__main__":
                     ),
                     pystray.MenuItem("Python Agent", make_restart_handler("5")),
                     pystray.MenuItem("Absensi Online", make_restart_handler("6")),
+                    pystray.MenuItem("LED Matrix", make_restart_handler("7")),
                     pystray.MenuItem("All", make_restart_handler(ALL_KEY)),
                 ),
             ),

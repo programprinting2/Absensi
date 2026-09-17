@@ -8,6 +8,8 @@ use App\Models\ShiftCalendarEntry;
 use App\Models\ShiftDaySetting;
 use App\Models\ShiftEmployeeLibur;
 use App\Models\ShiftEmployeeShiftOverride;
+use App\Models\ShiftGroup;
+use App\Models\ShiftGroupMember;
 use App\Models\WorkSchedule;
 use App\Support\AppTimezone;
 use App\Support\ResolvedShiftDay;
@@ -21,10 +23,159 @@ class ShiftResolver
     /** @var array<string, ?WorkSchedule> */
     private array $scheduleCache = [];
 
+    /**
+     * Data shift yang sudah di-batch load untuk rentang tanggal tertentu.
+     *
+     * @var array{
+     *     start: string,
+     *     end: string,
+     *     employeeIdSet: array<string, true>,
+     *     leaves: array<string, array<string, mixed>>,
+     *     daySettings: array<string, ShiftDaySetting>,
+     *     libur: array<string, array<string, true>>,
+     *     overrides: array<string, ShiftEmployeeShiftOverride>,
+     *     directEntries: array<string, ShiftCalendarEntry>,
+     *     groups: array<string, ?ShiftGroup>,
+     *     groupEntries: array<string, ShiftCalendarEntry>,
+     * }|null
+     */
+    private ?array $prefetch = null;
+
     public function forgetCache(): void
     {
         $this->dayCache = [];
         $this->scheduleCache = [];
+        $this->prefetch = null;
+    }
+
+    /**
+     * Muat data shift untuk banyak karyawan sekaligus supaya resolveDay tidak N+1.
+     *
+     * @param  iterable<int, string>  $employeeIds
+     */
+    public function prefetchForEmployeesAndRange(
+        iterable $employeeIds,
+        Carbon|string $rangeStart,
+        Carbon|string $rangeEnd,
+    ): void {
+        $ids = collect($employeeIds)->filter()->map(fn ($id) => (string) $id)->unique()->values();
+        if ($ids->isEmpty()) {
+            return;
+        }
+
+        $start = $this->toDateString($rangeStart);
+        $end = $this->toDateString($rangeEnd);
+        if ($start > $end) {
+            [$start, $end] = [$end, $start];
+        }
+
+        $employeeIdSet = $ids->mapWithKeys(fn (string $id) => [$id => true])->all();
+
+        $leaves = app(LeaveService::class)->approvedLeavesByEmployeeDate($ids, $start, $end);
+
+        $daySettings = ShiftDaySetting::query()
+            ->whereDate('work_date', '>=', $start)
+            ->whereDate('work_date', '<=', $end)
+            ->get()
+            ->keyBy(fn (ShiftDaySetting $setting) => $setting->work_date->toDateString())
+            ->all();
+
+        $libur = [];
+        foreach (ShiftEmployeeLibur::query()
+            ->whereIn('employee_id', $ids)
+            ->whereDate('work_date', '>=', $start)
+            ->whereDate('work_date', '<=', $end)
+            ->get(['employee_id', 'work_date']) as $row) {
+            $libur[(string) $row->employee_id][$row->work_date->toDateString()] = true;
+        }
+
+        $overrides = [];
+        foreach (ShiftEmployeeShiftOverride::query()
+            ->with('schedule')
+            ->whereIn('employee_id', $ids)
+            ->whereDate('work_date', '>=', $start)
+            ->whereDate('work_date', '<=', $end)
+            ->orderBy('work_date')
+            ->get() as $override) {
+            $key = (string) $override->employee_id.'|'.$override->work_date->toDateString();
+            $overrides[$key] ??= $override;
+        }
+
+        $directEntries = [];
+        foreach (ShiftCalendarEntry::query()
+            ->with('schedule')
+            ->whereIn('employee_id', $ids)
+            ->whereDate('work_date', '>=', $start)
+            ->whereDate('work_date', '<=', $end)
+            ->orderBy('sort_order')
+            ->get() as $entry) {
+            $key = (string) $entry->employee_id.'|'.$entry->work_date->toDateString();
+            $directEntries[$key] ??= $entry;
+        }
+
+        $members = ShiftGroupMember::query()
+            ->with('group')
+            ->whereIn('employee_id', $ids)
+            ->whereDate('effective_from', '<=', $end)
+            ->where(function ($query) use ($start) {
+                $query->whereNull('effective_to')
+                    ->orWhereDate('effective_to', '>=', $start);
+            })
+            ->orderByDesc('effective_from')
+            ->get();
+
+        $membersByEmployee = $members->groupBy(fn (ShiftGroupMember $member) => (string) $member->employee_id);
+
+        $groups = [];
+        $groupIds = [];
+        $cursor = Carbon::parse($start, AppTimezone::display())->startOfDay();
+        $endDay = Carbon::parse($end, AppTimezone::display())->startOfDay();
+
+        while ($cursor->lessThanOrEqualTo($endDay)) {
+            $day = $cursor->toDateString();
+
+            foreach ($ids as $employeeId) {
+                $member = ($membersByEmployee->get($employeeId) ?? collect())
+                    ->first(fn (ShiftGroupMember $row) => $row->effective_from->toDateString() <= $day
+                        && ($row->effective_to === null || $row->effective_to->toDateString() >= $day));
+
+                $group = $member?->group;
+                $groups["{$employeeId}|{$day}"] = $group;
+
+                if ($group && ! $group->is_system_unassigned) {
+                    $groupIds[(string) $group->id] = true;
+                }
+            }
+
+            $cursor->addDay();
+        }
+
+        $groupEntries = [];
+        if ($groupIds !== []) {
+            foreach (ShiftCalendarEntry::query()
+                ->with('schedule')
+                ->whereIn('group_id', array_keys($groupIds))
+                ->whereDate('work_date', '>=', $start)
+                ->whereDate('work_date', '<=', $end)
+                ->orderBy('sort_order')
+                ->get() as $entry) {
+                $key = (string) $entry->group_id.'|'.$entry->work_date->toDateString();
+                $groupEntries[$key] ??= $entry;
+            }
+        }
+
+        $this->prefetch = [
+            'start' => $start,
+            'end' => $end,
+            'employeeIdSet' => $employeeIdSet,
+            'leaves' => $leaves,
+            'daySettings' => $daySettings,
+            'libur' => $libur,
+            'overrides' => $overrides,
+            'directEntries' => $directEntries,
+            'groups' => $groups,
+            'groupEntries' => $groupEntries,
+        ];
     }
 
     /**
@@ -43,18 +194,14 @@ class ShiftResolver
             return $this->dayCache[$cacheKey];
         }
 
-        $daySetting = ShiftDaySetting::query()->whereDate('work_date', $day)->first();
+        $employeeKey = (string) $employeeId;
+        $daySetting = $this->daySettingFor($day);
         $workOverride = $daySetting?->work_duration_minutes;
         $breakOverride = $daySetting?->break_duration_minutes;
         $breakEarliestOverride = $this->formatBreakEarliestTime($daySetting?->break_earliest_time);
 
         // 1) Libur request (cuti/sakit/izin approved)
-        $leaveMap = app(LeaveService::class)->approvedLeavesByEmployeeDate(
-            [$employeeId],
-            Carbon::parse($day, AppTimezone::display()),
-            Carbon::parse($day, AppTimezone::display()),
-        );
-        if (! empty($leaveMap[$employeeId][$day])) {
+        if ($this->hasApprovedLeaveOn($employeeKey, $day)) {
             return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
                 kind: ResolvedShiftDay::KIND_LIBUR_REQUEST,
                 label: 'Libur request',
@@ -66,11 +213,7 @@ class ShiftResolver
         }
 
         // 2) Libur rutin karyawan — jatah admin di pola
-        $hasLibur = ShiftEmployeeLibur::query()
-            ->where('employee_id', $employeeId)
-            ->whereDate('work_date', $day)
-            ->exists();
-        if ($hasLibur) {
+        if ($this->hasEmployeeLiburOn($employeeKey, $day)) {
             return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
                 kind: ResolvedShiftDay::KIND_LIBUR_KARYAWAN,
                 label: 'Libur Rutin',
@@ -99,11 +242,7 @@ class ShiftResolver
         }
 
         // 4) Tukar sif override
-        $shiftOverride = ShiftEmployeeShiftOverride::query()
-            ->with('schedule')
-            ->where('employee_id', $employeeId)
-            ->whereDate('work_date', $day)
-            ->first();
+        $shiftOverride = $this->shiftOverrideFor($employeeKey, $day);
         if ($shiftOverride?->schedule && $this->scheduleAppliesOnDate($shiftOverride->schedule, $day)) {
             return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
                 kind: ResolvedShiftDay::KIND_WORK,
@@ -116,12 +255,7 @@ class ShiftResolver
         }
 
         // 5) Roster langsung per karyawan (tanpa group)
-        $directEntry = ShiftCalendarEntry::query()
-            ->with('schedule')
-            ->where('employee_id', $employeeId)
-            ->whereDate('work_date', $day)
-            ->orderBy('sort_order')
-            ->first();
+        $directEntry = $this->directCalendarEntryFor($employeeKey, $day);
         if ($directEntry?->schedule && $this->scheduleAppliesOnDate($directEntry->schedule, $day)) {
             return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
                 kind: ResolvedShiftDay::KIND_WORK,
@@ -134,14 +268,9 @@ class ShiftResolver
         }
 
         // 6) Roster: group membership → calendar entry
-        $group = app(ShiftGroupService::class)->groupForEmployeeOnDate($employeeId, $day);
+        $group = $this->groupForEmployeeOnDate($employeeKey, $day);
         if ($group && ! $group->is_system_unassigned) {
-            $entry = ShiftCalendarEntry::query()
-                ->with('schedule')
-                ->where('group_id', $group->id)
-                ->whereDate('work_date', $day)
-                ->orderBy('sort_order')
-                ->first();
+            $entry = $this->groupCalendarEntryFor((string) $group->id, $day);
 
             if ($entry?->schedule && $this->scheduleAppliesOnDate($entry->schedule, $day)) {
                 return $this->dayCache[$cacheKey] = new ResolvedShiftDay(
@@ -380,6 +509,105 @@ class ShiftResolver
         $this->forgetCache();
 
         return $count;
+    }
+
+    private function prefetchCovers(string $employeeId, string $day): bool
+    {
+        if ($this->prefetch === null) {
+            return false;
+        }
+
+        if ($day < $this->prefetch['start'] || $day > $this->prefetch['end']) {
+            return false;
+        }
+
+        return isset($this->prefetch['employeeIdSet'][$employeeId]);
+    }
+
+    private function daySettingFor(string $day): ?ShiftDaySetting
+    {
+        if ($this->prefetch !== null && $day >= $this->prefetch['start'] && $day <= $this->prefetch['end']) {
+            return $this->prefetch['daySettings'][$day] ?? null;
+        }
+
+        return ShiftDaySetting::query()->whereDate('work_date', $day)->first();
+    }
+
+    private function hasApprovedLeaveOn(string $employeeId, string $day): bool
+    {
+        if ($this->prefetchCovers($employeeId, $day)) {
+            return ! empty($this->prefetch['leaves'][$employeeId][$day]);
+        }
+
+        $leaveMap = app(LeaveService::class)->approvedLeavesByEmployeeDate(
+            [$employeeId],
+            Carbon::parse($day, AppTimezone::display()),
+            Carbon::parse($day, AppTimezone::display()),
+        );
+
+        return ! empty($leaveMap[$employeeId][$day]);
+    }
+
+    private function hasEmployeeLiburOn(string $employeeId, string $day): bool
+    {
+        if ($this->prefetchCovers($employeeId, $day)) {
+            return ! empty($this->prefetch['libur'][$employeeId][$day]);
+        }
+
+        return ShiftEmployeeLibur::query()
+            ->where('employee_id', $employeeId)
+            ->whereDate('work_date', $day)
+            ->exists();
+    }
+
+    private function shiftOverrideFor(string $employeeId, string $day): ?ShiftEmployeeShiftOverride
+    {
+        if ($this->prefetchCovers($employeeId, $day)) {
+            return $this->prefetch['overrides']["{$employeeId}|{$day}"] ?? null;
+        }
+
+        return ShiftEmployeeShiftOverride::query()
+            ->with('schedule')
+            ->where('employee_id', $employeeId)
+            ->whereDate('work_date', $day)
+            ->first();
+    }
+
+    private function directCalendarEntryFor(string $employeeId, string $day): ?ShiftCalendarEntry
+    {
+        if ($this->prefetchCovers($employeeId, $day)) {
+            return $this->prefetch['directEntries']["{$employeeId}|{$day}"] ?? null;
+        }
+
+        return ShiftCalendarEntry::query()
+            ->with('schedule')
+            ->where('employee_id', $employeeId)
+            ->whereDate('work_date', $day)
+            ->orderBy('sort_order')
+            ->first();
+    }
+
+    private function groupForEmployeeOnDate(string $employeeId, string $day): ?ShiftGroup
+    {
+        if ($this->prefetchCovers($employeeId, $day)) {
+            return $this->prefetch['groups']["{$employeeId}|{$day}"] ?? null;
+        }
+
+        return app(ShiftGroupService::class)->groupForEmployeeOnDate($employeeId, $day);
+    }
+
+    private function groupCalendarEntryFor(string $groupId, string $day): ?ShiftCalendarEntry
+    {
+        if ($this->prefetch !== null && $day >= $this->prefetch['start'] && $day <= $this->prefetch['end']) {
+            return $this->prefetch['groupEntries']["{$groupId}|{$day}"] ?? null;
+        }
+
+        return ShiftCalendarEntry::query()
+            ->with('schedule')
+            ->where('group_id', $groupId)
+            ->whereDate('work_date', $day)
+            ->orderBy('sort_order')
+            ->first();
     }
 
     private function withDayOverrides(
