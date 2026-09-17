@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Policies\SensitiveFinancePolicy;
 use App\Services\ActivityLogger;
+use App\Services\ShiftResolver;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Auth\Events\Login;
@@ -19,7 +20,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->singleton(ShiftResolver::class);
     }
 
     /**
